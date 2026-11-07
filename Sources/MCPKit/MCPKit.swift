@@ -115,7 +115,12 @@ public actor MCPKit {
     public func reconcile() throws {
         try updateHelperLink()
         let statuses = status()
-        for agent in AgentID.allCases where statuses[agent] == .outdated { try connect(agent) }
+        var firstError: (any Error)?
+        for agent in AgentID.allCases where statuses[agent] == .outdated {
+            do { try connect(agent) }
+            catch { if firstError == nil { firstError = error } }
+        }
+        if let firstError { throw firstError }
     }
 
     private func readEntry(_ agent: AgentID, definition: AgentDefinition) throws -> ServerEntry? {

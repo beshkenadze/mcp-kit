@@ -67,3 +67,20 @@ func unreadableOtherConfigsDoNotBlockDisconnectAndRetainPossibleSharedResources(
     #expect(FileManager.default.fileExists(atPath: shared.appendingPathComponent("filmcraft").path) == (other == .claudeCode))
     #expect(try String(contentsOf: broken, encoding: .utf8) == "{ broken")
 }
+
+@Test func reconcileRepairsRemainingOutdatedAgentsBeforeThrowingTheFirstFailure() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    try box.prepareSkills()
+    try box.write("{\"mcpServers\":{\"filmcraft\":{\"command\":\"\(helperLink(box).path)\",\"args\":[\"old\"]}}}", to: box.home.appendingPathComponent(".claude.json"))
+    try box.write("[mcp_servers.filmcraft]\ncommand = \"\(helperLink(box).path)\"\nargs = [\"old\"]\n", to: box.home.appendingPathComponent(".codex/config.toml"))
+    let conflict = box.home.appendingPathComponent(".claude/skills/filmcraft")
+    try box.write("user skill", to: conflict.appendingPathComponent("SKILL.md"))
+    let kit = MCPKit(box.skilledIntegration, environment: .init(home: box.home, bundleURL: box.bundle))
+    #expect(await kit.status()[.claudeCode] == .outdated)
+    #expect(await kit.status()[.codex] == .outdated)
+    do { try await kit.reconcile(); Issue.record("Expected the first agent's skill conflict") }
+    catch MCPKitError.skillConflict(let url) { #expect(url.path == conflict.resolvingSymlinksInPath().path) }
+    #expect(await kit.status()[.codex] == .connected)
+    #expect(try String(contentsOf: conflict.appendingPathComponent("SKILL.md"), encoding: .utf8) == "user skill")
+}
