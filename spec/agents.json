@@ -1,0 +1,26 @@
+{
+  "claudeCode": {
+    "displayName": "Claude Code",
+    "detect": { "paths": ["~/.claude.json", "~/.claude"] },
+    "config": { "path": "~/.claude.json", "format": "json", "serversKey": "mcpServers" },
+    "entry": { "commandKey": "command", "argsKey": "args", "envKey": "env", "typeKey": "type", "type": "stdio" },
+    "skillsDir": "~/.claude/skills",
+    "restartHint": null
+  },
+  "claudeDesktop": {
+    "displayName": "Claude Desktop",
+    "detect": { "paths": [], "bundleID": "com.anthropic.claudefordesktop" },
+    "config": { "path": "~/Library/Application Support/Claude/claude_desktop_config.json", "format": "json", "serversKey": "mcpServers" },
+    "entry": { "commandKey": "command", "argsKey": "args", "envKey": "env" },
+    "skillsDir": null,
+    "restartHint": "Restart Claude Desktop to apply this change."
+  },
+  "codex": {
+    "displayName": "Codex",
+    "detect": { "paths": ["~/.codex"] },
+    "config": { "path": "~/.codex/config.toml", "format": "toml", "serversKey": "mcp_servers" },
+    "entry": { "commandKey": "command", "argsKey": "args", "envKey": "env" },
+    "skillsDir": "~/.agents/skills",
+    "restartHint": null
+  }
+}
