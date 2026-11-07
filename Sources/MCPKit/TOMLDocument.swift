@@ -10,6 +10,7 @@ indirect enum TOMLValue {
 
 struct TOMLStatement {
     let start: Int
+    var end: Int
     let table: [String]
     let key: [String]?
     let value: TOMLValue?
@@ -52,26 +53,36 @@ struct TOMLDocument {
     func updating(definition: AgentDefinition, name: String, entry: ServerEntry?) throws -> Data {
         let path = [definition.config.serversKey, name]
         try validateLayout(path: path, envKey: definition.entry.envKey)
-        let headers = statements.filter { $0.key == nil }
-        let ranges = headers.enumerated().compactMap { index, header -> Range<Int>? in
+        let headers = statements.indices.filter { statements[$0].key == nil }
+        let sections = headers.enumerated().compactMap { index, start -> (Range<Int>, [String])? in
+            let header = statements[start]
             guard header.table.starts(with: path) else { return nil }
-            return header.start..<(index + 1 < headers.count ? headers[index + 1].start : characters.count)
+            let last = index + 1 < headers.count ? headers[index + 1] - 1 : statements.count - 1
+            return (header.start..<statements[last].end, header.table)
         }
-        let block = entry.map { render($0, definition: definition, path: path) } ?? ""
+        let envPath = path + [definition.entry.envKey]
+        let hasEnv = sections.contains { $0.1 == envPath }
+        let hasMain = sections.contains { $0.1 == path }
         var output = ""
         var cursor = 0
-        for (index, range) in ranges.enumerated() {
+        for (index, section) in sections.enumerated() {
+            let (range, table) = section
             output += String(characters[cursor..<range.lowerBound])
-            if index == 0 { output += block }
+            if let entry {
+                if table == path || (index == 0 && !hasMain) {
+                    output += render(ServerEntry(command: entry.command, args: entry.args, env: hasEnv ? [:] : entry.env), definition: definition, path: path)
+                }
+                if table == envPath { output += renderEnvironment(entry.env, path: envPath) }
+            }
             cursor = range.upperBound
         }
         output += String(characters[cursor...])
-        if ranges.isEmpty, entry != nil {
+        if sections.isEmpty, let entry {
             if !output.isEmpty {
                 if !output.hasSuffix("\n") { output += "\n" }
                 if !output.hasSuffix("\n\n") { output += "\n" }
             }
-            output += block
+            output += render(entry, definition: definition, path: path)
         }
         return Data(output.utf8)
     }
@@ -95,9 +106,15 @@ struct TOMLDocument {
         var text = "[\(table)]\n\(Self.key(keys.commandKey)) = \(Self.quote(entry.command))\n"
         text += "\(Self.key(keys.argsKey)) = [\(entry.args.map(Self.quote).joined(separator: ", "))]\n"
         if !entry.env.isEmpty {
-            text += "\n[\(table).\(Self.key(keys.envKey))]\n"
-            for key in entry.env.keys.sorted() { text += "\(Self.key(key)) = \(Self.quote(entry.env[key]!))\n" }
+            text += "\n" + renderEnvironment(entry.env, path: path + [keys.envKey])
         }
+        return text
+    }
+
+    private func renderEnvironment(_ env: [String: String], path: [String]) -> String {
+        guard !env.isEmpty else { return "" }
+        var text = "[\(path.map(Self.key).joined(separator: "."))]\n"
+        for key in env.keys.sorted() { text += "\(Self.key(key)) = \(Self.quote(env[key]!))\n" }
         return text
     }
 
@@ -157,7 +174,7 @@ private struct TOMLParser {
                 if array { arrayPaths.append(table) }
                 let underArray = arrayPaths.contains { table.starts(with: $0) }
                 if !underArray && (!tables.insert(table).inserted || values.contains(where: { table.starts(with: $0) })) { throw TOMLError.malformed }
-                result.append(TOMLStatement(start: start, table: table, key: nil, value: nil, arrayTable: array))
+                result.append(TOMLStatement(start: start, end: index, table: table, key: nil, value: nil, arrayTable: array))
             } else {
                 let key = try path()
                 guard take("=") else { throw TOMLError.malformed }
@@ -170,11 +187,13 @@ private struct TOMLParser {
                           !tables.contains(where: { $0.starts(with: full) }) else { throw TOMLError.malformed }
                     values.insert(full)
                 }
-                result.append(TOMLStatement(start: start, table: table, key: key, value: value, arrayTable: false))
+                result.append(TOMLStatement(start: start, end: index, table: table, key: key, value: value, arrayTable: false))
             }
             horizontal()
             comment()
             guard current == nil || current?.isNewline == true else { throw TOMLError.malformed }
+            if current?.isNewline == true { index += 1 }
+            result[result.count - 1].end = index
         }
     }
 

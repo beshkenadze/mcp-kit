@@ -4,5 +4,6 @@ args = ["mcp"]
 
 [mcp_servers.filmcraft.env]
 MODE = "test"
+
 [history]
 max_bytes = 42 # keep
