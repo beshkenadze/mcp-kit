@@ -20,19 +20,19 @@ private func helperLink(_ box: Sandbox) -> URL {
     #expect(try String(contentsOf: config, encoding: .utf8) == original)
 }
 
-@Test(arguments: ["", "\n\n", "\r\n"])
-func connectDisconnectPreservesOriginalEOFWhitespace(ending: String) async throws {
+@Test(arguments: ["", "\n", "\n\n", "\n\n\n"])
+func connectDisconnectNormalizesTrailingNewlines(ending: String) async throws {
     let box = try Sandbox()
     defer { try? box.cleanup() }
     let kit = box.kit()
     let config = box.home.appendingPathComponent(".codex/config.toml")
-    let original = "model = \"x\"\n\n[history]\nmax_bytes = 42" + ending
-    try box.write(original, to: config)
+    let body = "model = \"x\"\n\n[history]\nmax_bytes = 42"
+    try box.write(body + ending, to: config)
     for _ in 0..<3 {
         try await kit.connect(.codex)
         try await kit.disconnect(.codex)
     }
-    #expect(try Data(contentsOf: config) == Data(original.utf8))
+    #expect(try Data(contentsOf: config) == Data((body + "\n").utf8))
 }
 
 @Test func disconnectPreservesChangesMadeAfterConnection() async throws {

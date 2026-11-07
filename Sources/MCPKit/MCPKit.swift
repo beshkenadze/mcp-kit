@@ -72,13 +72,7 @@ public actor MCPKit {
             if try readEntry(agent, definition: definition)?.command == command {
                 try writer.update(url, transform: { data in
                     do {
-                        guard let existing = try ConfigReader.entry(in: data, definition: definition, name: name), existing.command == command else { return data ?? Data() }
-                        let backupURL = URL(fileURLWithPath: url.resolvingSymlinksInPath().path + ".mcp-kit.bak")
-                        if definition.config.format == "toml", let backup = try? Data(contentsOf: backupURL),
-                           (try? ConfigReader.entry(in: backup, definition: definition, name: name)) == nil,
-                           (try? ConfigReader.updating(backup, definition: definition, name: name, entry: existing)) == data {
-                            return backup
-                        }
+                        guard try ConfigReader.entry(in: data, definition: definition, name: name)?.command == command else { return data ?? Data() }
                         return try ConfigReader.updating(data, definition: definition, name: name, entry: nil)
                     } catch TOMLError.unsupportedLayout { throw MCPKitError.unsupportedLayout(agent, url) }
                     catch { throw MCPKitError.unreadableConfig(agent, url, underlying: error) }
