@@ -14,6 +14,7 @@ struct TOMLStatement {
     let table: [String]
     let key: [String]?
     let value: TOMLValue?
+    let valueRange: Range<Int>?
     let arrayTable: Bool
 }
 
@@ -31,7 +32,7 @@ struct TOMLDocument {
     func entry(definition: AgentDefinition, name: String) throws -> ServerEntry? {
         let path = [definition.config.serversKey, name]
         let keys = definition.entry
-        try validateLayout(path: path, envKey: keys.envKey)
+        try validateLayout(path: path, keys: keys)
         guard statements.contains(where: { $0.table.starts(with: path) }) else { return nil }
         let fields = statements.filter { $0.table == path && $0.key != nil }
         func field(_ key: String) -> TOMLValue? { fields.first { $0.key == [key] }?.value }
@@ -52,29 +53,47 @@ struct TOMLDocument {
 
     func updating(definition: AgentDefinition, name: String, entry: ServerEntry?) throws -> Data {
         let path = [definition.config.serversKey, name]
-        try validateLayout(path: path, envKey: definition.entry.envKey)
+        let keys = definition.entry
+        try validateLayout(path: path, keys: keys)
         let headers = statements.indices.filter { statements[$0].key == nil }
-        let sections = headers.enumerated().compactMap { index, start -> (Range<Int>, [String])? in
+        let sections = headers.enumerated().compactMap { index, start -> (range: Range<Int>, table: [String], statements: [TOMLStatement])? in
             let header = statements[start]
             guard header.table.starts(with: path) else { return nil }
             let last = index + 1 < headers.count ? headers[index + 1] - 1 : statements.count - 1
-            return (header.start..<statements[last].end, header.table)
+            return (header.start..<statements[last].end, header.table, Array(statements[start...last]))
         }
-        let envPath = path + [definition.entry.envKey]
-        let hasEnv = sections.contains { $0.1 == envPath }
-        let hasMain = sections.contains { $0.1 == path }
+        let envPath = path + [keys.envKey]
+        var edits: [(range: Range<Int>, text: String)] = []
+        if let entry {
+            let hasEnv = sections.contains { $0.table == envPath }
+            var fields = [(keys.commandKey, Self.quote(entry.command)), (keys.argsKey, "[\(entry.args.map(Self.quote).joined(separator: ", "))]")]
+            if let key = keys.typeKey, let type = keys.type { fields.append((key, Self.quote(type))) }
+            if let main = sections.first(where: { $0.table == path }) {
+                var insertion = ""
+                for (key, value) in fields {
+                    if let range = main.statements.first(where: { $0.key == [key] })?.valueRange {
+                        edits.append((range, value))
+                    } else { insertion += "\(Self.key(key)) = \(value)\n" }
+                }
+                if !hasEnv && !entry.env.isEmpty { insertion += "\n" + renderEnvironment(entry.env, path: envPath) }
+                if !insertion.isEmpty {
+                    let end = main.range.upperBound
+                    if end > 0 && !characters[end - 1].isNewline { insertion = "\n" + insertion }
+                    edits.append((end..<end, insertion))
+                }
+            } else if let first = sections.first {
+                let main = ServerEntry(command: entry.command, args: entry.args, env: hasEnv ? [:] : entry.env)
+                edits.append((first.range.lowerBound..<first.range.lowerBound, render(main, definition: definition, path: path)))
+            }
+            for section in sections where section.table.starts(with: envPath) {
+                edits.append((section.range, section.table == envPath ? renderEnvironment(entry.env, path: envPath) : ""))
+            }
+        } else { edits = sections.map { ($0.range, "") } }
         var output = ""
         var cursor = 0
-        for (index, section) in sections.enumerated() {
-            let (range, table) = section
-            output += String(characters[cursor..<range.lowerBound])
-            if let entry {
-                if table == path || (index == 0 && !hasMain) {
-                    output += render(ServerEntry(command: entry.command, args: entry.args, env: hasEnv ? [:] : entry.env), definition: definition, path: path)
-                }
-                if table == envPath { output += renderEnvironment(entry.env, path: envPath) }
-            }
-            cursor = range.upperBound
+        for edit in edits.sorted(by: { $0.range.lowerBound == $1.range.lowerBound ? $0.range.upperBound < $1.range.upperBound : $0.range.lowerBound < $1.range.lowerBound }) {
+            output += String(characters[cursor..<edit.range.lowerBound]) + edit.text
+            cursor = edit.range.upperBound
         }
         output += String(characters[cursor...])
         if sections.isEmpty, let entry {
@@ -87,15 +106,18 @@ struct TOMLDocument {
         return Data(output.utf8)
     }
 
-    private func validateLayout(path: [String], envKey: String) throws {
+    private func validateLayout(path: [String], keys: AgentDefinition.Entry) throws {
+        let ownedKeys = [keys.commandKey, keys.argsKey, keys.envKey] + (keys.typeKey.map { [$0] } ?? [])
         for statement in statements {
-            if statement.arrayTable && (statement.table.starts(with: path) || path.starts(with: statement.table)) { throw TOMLError.unsupportedLayout }
+            if statement.arrayTable && (path.starts(with: statement.table) || statement.table.starts(with: path + [keys.envKey])) { throw TOMLError.unsupportedLayout }
             guard let key = statement.key else { continue }
             let full = statement.table + key
             if path.starts(with: full) { throw TOMLError.unsupportedLayout }
             if full.starts(with: path) {
-                if key.count != 1 || !statement.table.starts(with: path) { throw TOMLError.unsupportedLayout }
-                if statement.table == path && key == [envKey] { throw TOMLError.unsupportedLayout }
+                if !statement.table.starts(with: path) { throw TOMLError.unsupportedLayout }
+                let ownedField = full.dropFirst(path.count).first.map { ownedKeys.contains($0) } == true
+                if ownedField && key.count != 1 { throw TOMLError.unsupportedLayout }
+                if statement.table == path && key == [keys.envKey] { throw TOMLError.unsupportedLayout }
             }
         }
     }
@@ -174,12 +196,14 @@ private struct TOMLParser {
                 if array { arrayPaths.append(table) }
                 let underArray = arrayPaths.contains { table.starts(with: $0) }
                 if !underArray && (!tables.insert(table).inserted || values.contains(where: { table.starts(with: $0) })) { throw TOMLError.malformed }
-                result.append(TOMLStatement(start: start, end: index, table: table, key: nil, value: nil, arrayTable: array))
+                result.append(TOMLStatement(start: start, end: index, table: table, key: nil, value: nil, valueRange: nil, arrayTable: array))
             } else {
                 let key = try path()
                 guard take("=") else { throw TOMLError.malformed }
                 horizontal()
+                let valueStart = index
                 let value = try value()
+                let valueRange = valueStart..<index
                 let full = table + key
                 let underArray = arrayPaths.contains { full.starts(with: $0) }
                 if !underArray {
@@ -187,7 +211,7 @@ private struct TOMLParser {
                           !tables.contains(where: { $0.starts(with: full) }) else { throw TOMLError.malformed }
                     values.insert(full)
                 }
-                result.append(TOMLStatement(start: start, end: index, table: table, key: key, value: value, arrayTable: false))
+                result.append(TOMLStatement(start: start, end: index, table: table, key: key, value: value, valueRange: valueRange, arrayTable: false))
             }
             horizontal()
             comment()

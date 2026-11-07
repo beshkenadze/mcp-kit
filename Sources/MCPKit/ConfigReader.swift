@@ -32,7 +32,10 @@ enum ConfigReader {
         var servers = try servers(root, key: definition.config.serversKey)
         if let entry {
             let keys = definition.entry
-            var object: [String: Any] = [keys.commandKey: entry.command, keys.argsKey: entry.args, keys.envKey: entry.env]
+            var object = servers[name] as? [String: Any] ?? [:]
+            object[keys.commandKey] = entry.command
+            object[keys.argsKey] = entry.args
+            object[keys.envKey] = entry.env
             if let key = keys.typeKey, let type = keys.type { object[key] = type }
             servers[name] = object
         } else { servers.removeValue(forKey: name) }

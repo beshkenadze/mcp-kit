@@ -93,3 +93,40 @@ func unreadableOtherConfigsDoNotBlockDisconnectAndRetainPossibleSharedResources(
     #expect(await kit.status()[.codex] == .connected)
     #expect(try String(contentsOf: conflict.appendingPathComponent("SKILL.md"), encoding: .utf8) == "user skill")
 }
+
+@Test(arguments: [false, true])
+func userTOMLFieldsAndToolSubtablesSurviveOwnedFieldUpdates(reconcile: Bool) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = box.home.appendingPathComponent(".codex/config.toml")
+    let controls = "enabled = false\ntool_timeout_sec = 300\ndefault_tools_approval_mode = 'approve'\nenabled_tools = [\"search\"] # user selection\n"
+    let tool = "[mcp_servers.filmcraft.tools.search]\napproval_mode = 'prompt'\noutput_token_limit = 30000\n"
+    let history = "\n# history settings\n[history]\nmax_bytes = 42\n"
+    try box.write("[mcp_servers.filmcraft]\ncommand = \"\(helperLink(box).path)\"\nargs = [\"old\"] # arguments\n" + controls + "\n# tool policies\n" + tool + history + "\n[mcp_servers.filmcraft.env]\nMODE = 'old'\nOBSOLETE = 'remove'\n", to: config)
+    let kit = box.kit()
+    if reconcile { try await kit.reconcile() }
+    else { try await kit.connect(.codex) }
+    let text = try String(contentsOf: config, encoding: .utf8)
+    #expect(text.contains(controls))
+    #expect(text.contains("\n# tool policies\n" + tool))
+    #expect(text.contains(history))
+    #expect(text.contains("args = [\"mcp\"] # arguments"))
+    #expect(!text.contains("OBSOLETE"))
+    #expect(await kit.status()[.codex] == .connected)
+}
+
+@Test(arguments: [AgentID.claudeCode, .claudeDesktop])
+func userJSONFieldsSurviveAnOutdatedRewrite(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let definition = try #require(AgentRegistry.load()[agent])
+    let config = MCPEnvironment(home: box.home, bundleURL: box.bundle).expand(definition.config.path)
+    try box.write("{\"mcpServers\":{\"filmcraft\":{\"command\":\"\(helperLink(box).path)\",\"args\":[\"old\"],\"enabled\":false,\"preferences\":{\"allow\":[\"read\"]}}}}", to: config)
+    let kit = box.kit(desktopInstalled: true)
+    try await kit.reconcile()
+    let root = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: config)) as? [String: Any])
+    let entry = try #require((root["mcpServers"] as? [String: [String: Any]])?["filmcraft"])
+    #expect(entry["enabled"] as? Bool == false)
+    #expect(entry["preferences"] as? NSDictionary == ["allow": ["read"]] as NSDictionary)
+    #expect(await kit.status()[agent] == .connected)
+}
