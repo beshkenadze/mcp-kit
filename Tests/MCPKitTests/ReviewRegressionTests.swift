@@ -6,6 +6,15 @@ private func helperLink(_ box: Sandbox) -> URL {
     box.home.appendingPathComponent("Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft")
 }
 
+@Test(arguments: AgentID.allCases)
+func connectingAnUndetectedAgentReportsFailure(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    do { try await box.kit().connect(agent); Issue.record("Expected agentNotFound") }
+    catch MCPKitError.agentNotFound(let missing) { #expect(missing == agent) }
+    #expect(!FileManager.default.fileExists(atPath: helperLink(box).path))
+}
+
 @Test(arguments: [AgentID.codex, .claudeCode])
 func symlinkedConfigsKeepTheirLinksAndWriteBesideTheTarget(agent: AgentID) async throws {
     let box = try Sandbox()

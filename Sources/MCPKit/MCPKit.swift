@@ -34,7 +34,7 @@ public actor MCPKit {
     @discardableResult
     public func connect(_ agent: AgentID, force: Bool = false) throws -> ConnectResult {
         let definition = try AgentRegistry.load()[agent]!
-        guard definition.isDetected(in: environment) else { return ConnectResult(restartHint: nil) }
+        guard definition.isDetected(in: environment) else { throw MCPKitError.agentNotFound(agent) }
         let url = environment.expand(definition.config.path)
         do {
             try updateHelperLink()

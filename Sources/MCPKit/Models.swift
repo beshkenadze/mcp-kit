@@ -43,6 +43,7 @@ public struct ConnectResult: Equatable, Sendable {
 }
 
 public enum MCPKitError: Error {
+    case agentNotFound(AgentID)
     case helperMissing(URL)
     case conflict(AgentID, existingCommand: String)
     case unreadableConfig(AgentID, URL, underlying: any Error)

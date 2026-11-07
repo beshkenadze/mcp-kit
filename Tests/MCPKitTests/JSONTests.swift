@@ -51,7 +51,7 @@ func jsonGoldenConnections(agent: AgentID, name: String) async throws {
 @Test func connectionDoesNotCreateAnUndetectedAgentConfig() async throws {
     let box = try Sandbox()
     defer { try? box.cleanup() }
-    _ = try await box.kit().connect(.claudeCode)
+    await #expect(throws: MCPKitError.self) { try await box.kit().connect(.claudeCode) }
     #expect(!FileManager.default.fileExists(atPath: box.home.appendingPathComponent(".claude.json").path))
 }
 
