@@ -83,7 +83,12 @@ public actor MCPKit {
             var remaining: [AgentDefinition] = []
             for id in AgentID.allCases where id != agent {
                 let other = registry[id]!
-                if try readEntry(id, definition: other)?.command == command { remaining.append(other) }
+                do {
+                    if try readEntry(id, definition: other)?.command == command { remaining.append(other) }
+                } catch {
+                    remaining.append(other)
+                    logger.warning("Keeping resources for unreadable \(id.rawValue, privacy: .public) configuration")
+                }
             }
             if let directory = skillDirectory(definition), !remaining.contains(where: { skillDirectory($0) == directory }) {
                 try skillInstaller().removeOwned(in: directory)

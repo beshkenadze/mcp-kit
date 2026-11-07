@@ -46,3 +46,24 @@ func commentsAndBlankLinesBeforeTheNextTableSurvive(disconnect: Bool) async thro
     #expect(text.hasSuffix(suffix))
     if disconnect { #expect(!text.contains("# owned line")) }
 }
+
+@Test(arguments: [AgentID.claudeDesktop, .claudeCode])
+func unreadableOtherConfigsDoNotBlockDisconnectAndRetainPossibleSharedResources(other: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    try box.prepareSkills()
+    let shared = box.home.appendingPathComponent(".agents/skills")
+    try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: box.home.appendingPathComponent(".claude/skills"), withDestinationURL: shared)
+    try FileManager.default.createDirectory(at: box.home.appendingPathComponent(".codex"), withIntermediateDirectories: true)
+    let kit = MCPKit(box.skilledIntegration, environment: .init(home: box.home, bundleURL: box.bundle, applicationInstalled: { _ in true }))
+    try await kit.connect(.codex)
+    let definition = try #require(AgentRegistry.load()[other])
+    let broken = MCPEnvironment(home: box.home, bundleURL: box.bundle).expand(definition.config.path)
+    try box.write("{ broken", to: broken)
+    try await kit.disconnect(.codex)
+    #expect(await kit.status()[.codex] == .disconnected)
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) != nil)
+    #expect(FileManager.default.fileExists(atPath: shared.appendingPathComponent("filmcraft").path) == (other == .claudeCode))
+    #expect(try String(contentsOf: broken, encoding: .utf8) == "{ broken")
+}
