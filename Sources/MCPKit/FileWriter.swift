@@ -16,6 +16,7 @@ public struct FileWriter: ConfigWriter {
     init(afterWrite: @escaping @Sendable (URL, Int) throws -> Void) { self.afterWrite = afterWrite }
 
     public func update(_ url: URL, transform: @Sendable (Data?) throws -> Data, verify: @Sendable (Data?) throws -> Bool) throws {
+        let url = url.resolvingSymlinksInPath()
         let fm = FileManager.default
         for attempt in 0..<2 {
             let original: Data?
