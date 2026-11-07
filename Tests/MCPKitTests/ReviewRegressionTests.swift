@@ -15,6 +15,39 @@ func connectingAnUndetectedAgentReportsFailure(agent: AgentID) async throws {
     #expect(!FileManager.default.fileExists(atPath: helperLink(box).path))
 }
 
+@Test(arguments: [false, true])
+func reconcileDoesNothingBeforeTheFirstConnection(helperMissing: Bool) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    try FileManager.default.createDirectory(at: box.home.appendingPathComponent(".codex"), withIntermediateDirectories: true)
+    if helperMissing { try FileManager.default.removeItem(at: box.bundle.appendingPathComponent("Contents/Helpers/filmcraft-cli")) }
+    try await box.kit().reconcile()
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) == nil)
+    #expect(!FileManager.default.fileExists(atPath: box.home.appendingPathComponent(".codex/config.toml").path))
+}
+
+@Test func reconcileRepointsAnExistingDanglingLinkWithoutConnectingAgents() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let link = helperLink(box)
+    try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: box.root.appendingPathComponent("Deleted.app/helper"))
+    try await box.kit().reconcile()
+    #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == box.bundle.appendingPathComponent("Contents/Helpers/filmcraft-cli").path)
+    #expect(await box.kit().status()[.codex] == .agentNotFound)
+}
+
+@Test func reconcileRestoresAMissingHelperLinkForAnOwnedEntry() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = box.home.appendingPathComponent(".codex/config.toml")
+    try box.write(String(decoding: fixture(.codex, "missing", "after", home: box.home, ext: "toml"), as: UTF8.self), to: config)
+    let kit = box.kit()
+    #expect(await kit.status()[.codex] == .connected)
+    try await kit.reconcile()
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) != nil)
+}
+
 @Test(arguments: [AgentID.codex, .claudeCode])
 func symlinkedConfigsKeepTheirLinksAndWriteBesideTheTarget(agent: AgentID) async throws {
     let box = try Sandbox()

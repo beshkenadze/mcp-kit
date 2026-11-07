@@ -113,6 +113,12 @@ public actor MCPKit {
     }
 
     public func reconcile() throws {
+        let link = try helperLink()
+        let linkExists = (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil
+        let hasOwnedEntry = try AgentRegistry.load().contains { agent, definition in
+            (try? readEntry(agent, definition: definition))?.command == link.path
+        }
+        guard linkExists || hasOwnedEntry else { return }
         try updateHelperLink()
         let statuses = status()
         var firstError: (any Error)?
