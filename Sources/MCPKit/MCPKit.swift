@@ -21,7 +21,9 @@ public actor MCPKit {
                     let url = environment.expand(definition.config.path)
                     guard let entry = try ConfigReader.entry(in: ConfigReader.data(at: url), definition: definition, name: integration.name) else { return .disconnected }
                     guard entry.command == (try helperLink().path) else { return .conflict }
-                    return entry == (try desiredEntry()) ? .connected : .outdated
+                    guard entry == (try desiredEntry()) else { return .outdated }
+                    if let directory = skillDirectory(definition), try skillInstaller().isOutdated(in: directory) { return .outdated }
+                    return .connected
                 } catch { return .unavailable(error.localizedDescription) }
             }
         } catch {
@@ -51,11 +53,80 @@ public actor MCPKit {
             }, verify: { data in
                 try ConfigReader.entry(in: data, definition: definition, name: name) == desired
             })
+            if let directory = skillDirectory(definition) { try skillInstaller().install(in: directory) }
             logger.info("Connected \(agent.rawValue, privacy: .public)")
             return ConnectResult(restartHint: definition.restartHint)
         } catch let error as MCPKitError { throw error }
         catch WriteVerificationError.failed { throw MCPKitError.verificationFailed(agent) }
         catch { throw MCPKitError.writeFailed(agent, url, underlying: error) }
+    }
+
+    public func disconnect(_ agent: AgentID) throws {
+        let registry = try AgentRegistry.load()
+        let definition = registry[agent]!
+        let url = environment.expand(definition.config.path)
+        do {
+            let command = try helperLink().path
+            let name = integration.name
+            if try readEntry(agent, definition: definition)?.command == command {
+                try writer.update(url, transform: { data in
+                    do {
+                        guard try ConfigReader.entry(in: data, definition: definition, name: name)?.command == command else { return data ?? Data() }
+                        return try ConfigReader.updating(data, definition: definition, name: name, entry: nil)
+                    } catch TOMLError.unsupportedLayout { throw MCPKitError.unsupportedLayout(agent, url) }
+                    catch { throw MCPKitError.unreadableConfig(agent, url, underlying: error) }
+                }, verify: { data in
+                    try ConfigReader.entry(in: data, definition: definition, name: name)?.command != command
+                })
+            }
+            var remaining: [AgentDefinition] = []
+            for id in AgentID.allCases where id != agent {
+                let other = registry[id]!
+                if try readEntry(id, definition: other)?.command == command { remaining.append(other) }
+            }
+            if let directory = skillDirectory(definition), !remaining.contains(where: { skillDirectory($0) == directory }) {
+                try skillInstaller().removeOwned(in: directory)
+            }
+            if remaining.isEmpty, (try? FileManager.default.destinationOfSymbolicLink(atPath: command)) != nil {
+                try FileManager.default.removeItem(atPath: command)
+            }
+            logger.info("Disconnected \(agent.rawValue, privacy: .public)")
+        } catch let error as MCPKitError { throw error }
+        catch WriteVerificationError.failed { throw MCPKitError.verificationFailed(agent) }
+        catch { throw MCPKitError.writeFailed(agent, url, underlying: error) }
+    }
+
+    public func disconnectAll() throws {
+        var firstError: (any Error)?
+        for agent in AgentID.allCases {
+            do { try disconnect(agent) }
+            catch { if firstError == nil { firstError = error } }
+        }
+        if let firstError { throw firstError }
+    }
+
+    public func reconcile() throws {
+        try updateHelperLink()
+        let statuses = status()
+        for agent in AgentID.allCases where statuses[agent] == .outdated { try connect(agent) }
+    }
+
+    private func readEntry(_ agent: AgentID, definition: AgentDefinition) throws -> ServerEntry? {
+        let url = environment.expand(definition.config.path)
+        do { return try ConfigReader.entry(in: ConfigReader.data(at: url), definition: definition, name: integration.name) }
+        catch TOMLError.unsupportedLayout { throw MCPKitError.unsupportedLayout(agent, url) }
+        catch { throw MCPKitError.unreadableConfig(agent, url, underlying: error) }
+    }
+
+    private func skillDirectory(_ definition: AgentDefinition) -> URL? {
+        definition.skillsDir.map { environment.expand($0).resolvingSymlinksInPath() }
+    }
+
+    private func skillInstaller() throws -> SkillInstaller {
+        let info = try bundleInfo()
+        guard let bundleID = info["CFBundleIdentifier"] as? String,
+              let version = info["CFBundleShortVersionString"] as? String else { throw CocoaError(.fileReadCorruptFile) }
+        return SkillInstaller(sources: integration.skills.map { $0.resolve(in: environment.bundleURL) }, marker: .init(bundleID: bundleID, version: version))
     }
 
     func bundleInfo() throws -> [String: Any] {
