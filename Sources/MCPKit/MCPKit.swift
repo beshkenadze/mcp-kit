@@ -46,6 +46,7 @@ public actor MCPKit {
                     }
                     return try ConfigReader.updating(data, definition: definition, name: name, entry: desired)
                 } catch let error as MCPKitError { throw error }
+                catch TOMLError.unsupportedLayout { throw MCPKitError.unsupportedLayout(agent, url) }
                 catch { throw MCPKitError.unreadableConfig(agent, url, underlying: error) }
             }, verify: { data in
                 try ConfigReader.entry(in: data, definition: definition, name: name) == desired

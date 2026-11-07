@@ -1,0 +1,8 @@
+# User preferences
+model = "gpt-example"
+
+[mcp_servers.other] # preserved
+command = "/other#helper" # literal hash
+args = [
+  "serve", # keep
+]

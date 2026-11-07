@@ -13,6 +13,7 @@ enum ConfigReader {
     }
 
     static func entry(in data: Data?, definition: AgentDefinition, name: String) throws -> ServerEntry? {
+        if definition.config.format == "toml" { return try TOMLDocument(data).entry(definition: definition, name: name) }
         let root = try json(data)
         guard let value = try servers(root, key: definition.config.serversKey)[name] else { return nil }
         guard let object = value as? [String: Any] else { throw CocoaError(.fileReadCorruptFile) }
@@ -26,6 +27,7 @@ enum ConfigReader {
     }
 
     static func updating(_ data: Data?, definition: AgentDefinition, name: String, entry: ServerEntry?) throws -> Data {
+        if definition.config.format == "toml" { return try TOMLDocument(data).updating(definition: definition, name: name, entry: entry) }
         var root = try json(data)
         var servers = try servers(root, key: definition.config.serversKey)
         if let entry {

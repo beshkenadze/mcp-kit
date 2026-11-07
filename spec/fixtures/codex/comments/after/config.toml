@@ -1,0 +1,15 @@
+# User preferences
+model = "gpt-example"
+
+[mcp_servers.other] # preserved
+command = "/other#helper" # literal hash
+args = [
+  "serve", # keep
+]
+
+[mcp_servers.filmcraft]
+command = "$HOME/Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft"
+args = ["mcp"]
+
+[mcp_servers.filmcraft.env]
+MODE = "test"

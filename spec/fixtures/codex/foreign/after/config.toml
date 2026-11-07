@@ -1,0 +1,12 @@
+model = "gpt-example" # keep
+
+[mcp_servers.other]
+command = "/usr/bin/other"
+args = ["serve"]
+
+[mcp_servers.filmcraft]
+command = "$HOME/Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft"
+args = ["mcp"]
+
+[mcp_servers.filmcraft.env]
+MODE = "test"

@@ -1,0 +1,8 @@
+[mcp_servers.filmcraft]
+command = "$HOME/Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft"
+args = ["mcp"]
+
+[mcp_servers.filmcraft.env]
+MODE = "test"
+[history]
+max_bytes = 42 # keep

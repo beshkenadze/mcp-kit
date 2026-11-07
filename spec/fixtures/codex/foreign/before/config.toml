@@ -1,0 +1,5 @@
+model = "gpt-example" # keep
+
+[mcp_servers.other]
+command = "/usr/bin/other"
+args = ["serve"]
