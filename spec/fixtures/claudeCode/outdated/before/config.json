@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "filmcraft": {
+      "type": "stdio",
+      "command": "$HOME/Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft",
+      "args": [
+        "old"
+      ],
+      "env": {
+        "MODE": "old"
+      }
+    }
+  }
+}

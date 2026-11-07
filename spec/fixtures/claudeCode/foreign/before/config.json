@@ -1,0 +1,11 @@
+{
+  "theme": "dark",
+  "mcpServers": {
+    "other": {
+      "command": "/usr/bin/other",
+      "args": [
+        "serve"
+      ]
+    }
+  }
+}

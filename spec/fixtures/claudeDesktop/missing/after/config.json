@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "filmcraft": {
+      "command": "$HOME/Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "MODE": "test"
+      }
+    }
+  }
+}

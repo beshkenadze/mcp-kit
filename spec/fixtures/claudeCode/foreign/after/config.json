@@ -1,0 +1,21 @@
+{
+  "theme": "dark",
+  "mcpServers": {
+    "other": {
+      "command": "/usr/bin/other",
+      "args": [
+        "serve"
+      ]
+    },
+    "filmcraft": {
+      "type": "stdio",
+      "command": "$HOME/Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft",
+      "args": [
+        "mcp"
+      ],
+      "env": {
+        "MODE": "test"
+      }
+    }
+  }
+}
