@@ -57,6 +57,7 @@ public actor MCPKit {
             logger.info("Connected \(agent.rawValue, privacy: .public)")
             return ConnectResult(restartHint: definition.restartHint)
         } catch let error as MCPKitError { throw error }
+        catch let error as ConfigReadError { throw MCPKitError.unreadableConfig(agent, url, underlying: error.underlying) }
         catch WriteVerificationError.failed { throw MCPKitError.verificationFailed(agent) }
         catch { throw MCPKitError.writeFailed(agent, url, underlying: error) }
     }
@@ -92,6 +93,7 @@ public actor MCPKit {
             }
             logger.info("Disconnected \(agent.rawValue, privacy: .public)")
         } catch let error as MCPKitError { throw error }
+        catch let error as ConfigReadError { throw MCPKitError.unreadableConfig(agent, url, underlying: error.underlying) }
         catch WriteVerificationError.failed { throw MCPKitError.verificationFailed(agent) }
         catch { throw MCPKitError.writeFailed(agent, url, underlying: error) }
     }

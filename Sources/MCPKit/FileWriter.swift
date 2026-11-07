@@ -6,14 +6,21 @@ public protocol ConfigWriter: Sendable {
 }
 
 enum WriteVerificationError: Error { case failed }
+struct ConfigReadError: Error { let underlying: any Error }
 
 public struct FileWriter: ConfigWriter {
-    public init() {}
+    private let afterWrite: (@Sendable (URL, Int) throws -> Void)?
+
+    public init() { afterWrite = nil }
+
+    init(afterWrite: @escaping @Sendable (URL, Int) throws -> Void) { self.afterWrite = afterWrite }
 
     public func update(_ url: URL, transform: @Sendable (Data?) throws -> Data, verify: @Sendable (Data?) throws -> Bool) throws {
         let fm = FileManager.default
-        for _ in 0..<2 {
-            let original = try ConfigReader.data(at: url)
+        for attempt in 0..<2 {
+            let original: Data?
+            do { original = try ConfigReader.data(at: url) }
+            catch { throw ConfigReadError(underlying: error) }
             let output = try transform(original)
             if output == original, (try? verify(original)) == true { return }
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -23,6 +30,7 @@ public struct FileWriter: ConfigWriter {
                 try atomicWrite(original, to: backup, permissions: permissions)
             }
             try atomicWrite(output, to: url, permissions: permissions)
+            try afterWrite?(url, attempt)
             if (try? verify(ConfigReader.data(at: url))) == true { return }
         }
         throw WriteVerificationError.failed
