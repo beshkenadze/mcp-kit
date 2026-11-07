@@ -88,7 +88,21 @@ struct TOMLDocument {
             for section in sections where section.table.starts(with: envPath) {
                 edits.append((section.range, section.table == envPath ? renderEnvironment(entry.env, path: envPath) : ""))
             }
-        } else { edits = sections.map { ($0.range, "") } }
+        } else {
+            edits = sections.map { section in
+                var start = section.range.lowerBound
+                while start > 0 {
+                    var lineStart = start
+                    while lineStart > 0 && [" ", "\t"].contains(characters[lineStart - 1]) { lineStart -= 1 }
+                    guard lineStart > 0, characters[lineStart - 1].isNewline else { break }
+                    lineStart -= 1
+                    while lineStart > 0 && [" ", "\t"].contains(characters[lineStart - 1]) { lineStart -= 1 }
+                    guard lineStart == 0 || characters[lineStart - 1].isNewline else { break }
+                    start = lineStart
+                }
+                return (start..<section.range.upperBound, "")
+            }
+        }
         var output = ""
         var cursor = 0
         for edit in edits.sorted(by: { $0.range.lowerBound == $1.range.lowerBound ? $0.range.upperBound < $1.range.upperBound : $0.range.lowerBound < $1.range.lowerBound }) {

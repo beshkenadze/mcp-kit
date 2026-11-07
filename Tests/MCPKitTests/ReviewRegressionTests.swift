@@ -6,6 +6,59 @@ private func helperLink(_ box: Sandbox) -> URL {
     box.home.appendingPathComponent("Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft")
 }
 
+@Test func connectDisconnectCyclesRestoreTheOriginalFile() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let kit = box.kit()
+    let config = box.home.appendingPathComponent(".codex/config.toml")
+    let original = "model = \"x\"\n\n[history]\nmax_bytes = 42\n"
+    try box.write(original, to: config)
+    for _ in 0..<3 {
+        try await kit.connect(.codex)
+        try await kit.disconnect(.codex)
+    }
+    #expect(try String(contentsOf: config, encoding: .utf8) == original)
+}
+
+@Test(arguments: ["", "\n\n", "\r\n"])
+func connectDisconnectPreservesOriginalEOFWhitespace(ending: String) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let kit = box.kit()
+    let config = box.home.appendingPathComponent(".codex/config.toml")
+    let original = "model = \"x\"\n\n[history]\nmax_bytes = 42" + ending
+    try box.write(original, to: config)
+    for _ in 0..<3 {
+        try await kit.connect(.codex)
+        try await kit.disconnect(.codex)
+    }
+    #expect(try Data(contentsOf: config) == Data(original.utf8))
+}
+
+@Test func disconnectPreservesChangesMadeAfterConnection() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = box.home.appendingPathComponent(".codex/config.toml")
+    let original = "[history]\nmax_bytes = 42\n"
+    try box.write(original, to: config)
+    let kit = box.kit()
+    try await kit.connect(.codex)
+    let connected = try String(contentsOf: config, encoding: .utf8)
+    try box.write(connected.replacingOccurrences(of: "max_bytes = 42", with: "max_bytes = 99"), to: config)
+    try await kit.disconnect(.codex)
+    #expect(try String(contentsOf: config, encoding: .utf8) == "[history]\nmax_bytes = 99\n")
+}
+
+@Test func disconnectRemovesAnOwnedTableBetweenOtherTablesWithoutExtraBlankLines() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = box.home.appendingPathComponent(".codex/config.toml")
+    let owned = "[mcp_servers.filmcraft]\ncommand = \"\(helperLink(box).path)\"\nargs = [\"mcp\"]\n\n[mcp_servers.filmcraft.env]\nMODE = \"test\"\n"
+    try box.write("[a]\nx = 1\n\n" + owned + "\n[b]\ny = 2\n", to: config)
+    try await box.kit().disconnect(.codex)
+    #expect(try String(contentsOf: config, encoding: .utf8) == "[a]\nx = 1\n\n[b]\ny = 2\n")
+}
+
 @Test(arguments: AgentID.allCases)
 func connectingAnUndetectedAgentReportsFailure(agent: AgentID) async throws {
     let box = try Sandbox()
