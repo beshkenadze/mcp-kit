@@ -1,0 +1,50 @@
+import Foundation
+import Testing
+import MCPKitServer
+
+struct Scalars: ToolInput {
+    let text: String
+    let url: URL
+    let int: Int
+    let int8: Int8
+    let int16: Int16
+    let int32: Int32
+    let int64: Int64
+    let uint: UInt
+    let uint8: UInt8
+    let uint16: UInt16
+    let uint32: UInt32
+    let uint64: UInt64
+    let double: Double
+    let float: Float
+    let bool: Bool
+    let optional: String?
+    static let descriptions = ["text": "Some text", "optional": "May be omitted"]
+}
+
+@Test func scalarSchemasAndOptionalFields() async throws {
+    let server = try MCPServer(name: "schemas", version: "1") {
+        Tool("scalars", "Scalar arguments", input: Scalars.self) { args in .text(args.text) }
+    }
+    try await withClient(server) { client, _ in
+        let tool = try #require(try await client.listTools().tools.first)
+        let schema = try #require(tool.inputSchema.objectValue)
+        let fields = try #require(schema["properties"]?.objectValue)
+        #expect(fields["text"] == .object(["type": .string("string"), "description": .string("Some text")]))
+        #expect(fields["url"] == .object(["type": .string("string"), "format": .string("uri")]))
+        for key in ["int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64"] {
+            #expect(fields[key] == .object(["type": .string("integer")]))
+        }
+        for key in ["float", "double"] { #expect(fields[key] == .object(["type": .string("number")])) }
+        #expect(fields["bool"] == .object(["type": .string("boolean")]))
+        #expect(fields["optional"] == .object(["type": .string("string"), "description": .string("May be omitted")]))
+        #expect(Set(schema["required"]?.arrayValue ?? []) == Set(fields.keys.filter { $0 != "optional" }.map(Value.string)))
+        let result = try await client.callTool(name: "scalars", arguments: [
+            "text": .string("hello"), "url": .string("https://example.com"),
+            "int": .int(1), "int8": .int(8), "int16": .int(16), "int32": .int(32), "int64": .int(64),
+            "uint": .int(1), "uint8": .int(8), "uint16": .int(16), "uint32": .int(32), "uint64": .int(64),
+            "double": .double(1.5), "float": .double(2.5), "bool": .bool(true)
+        ])
+        #expect(result.content == [.text(text: "hello", annotations: nil, _meta: nil)])
+    }
+}
