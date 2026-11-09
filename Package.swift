@@ -15,12 +15,13 @@ let package = Package(
         .target(
             name: "MCPKit",
             path: ".",
-            exclude: ["Tests", "docs", "spec/README.md", "spec/fixtures", "README.md", "Sources/MCPKitServer"],
+            exclude: ["Tests", "docs", "spec/README.md", "spec/fixtures", "README.md", "Sources/MCPKitServer", "Sources/ExampleHelper"],
             sources: ["Sources/MCPKit"],
             resources: [.copy("spec/agents.json")]
         ),
         .testTarget(name: "MCPKitTests", dependencies: ["MCPKit"]),
         .target(name: "MCPKitServer", dependencies: [.product(name: "MCP", package: "swift-sdk")]),
+        .executableTarget(name: "ExampleHelper", dependencies: ["MCPKitServer"]),
         .testTarget(name: "MCPKitServerTests", dependencies: ["MCPKitServer"])
     ],
     swiftLanguageModes: [.v6]

@@ -132,6 +132,16 @@ public struct MCPServer: Sendable {
     }
 
     public func stop() async { await server.stop() }
+
+    public func runStdio() async throws {
+        try await start(transport: StdioTransport())
+        await withTaskCancellationHandler {
+            await server.waitUntilCompleted()
+        } onCancel: {
+            Task { await server.stop() }
+        }
+        await server.stop()
+    }
 }
 
 private struct ArgumentFailure: LocalizedError {
