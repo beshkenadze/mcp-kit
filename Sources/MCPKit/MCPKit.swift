@@ -69,16 +69,19 @@ public actor MCPKit {
         let url = environment.expand(definition.config.path)
         do {
             let command = try helperLink().path
+            let commands = try ownedCommands()
             let name = integration.name
-            if try readEntry(agent, definition: definition)?.command == command {
+            if let entry = try readEntry(agent, definition: definition), commands.contains(entry.command) {
                 try writer.update(url, transform: { data in
                     do {
-                        guard try ConfigReader.entry(in: data, definition: definition, name: name)?.command == command else { return data ?? Data() }
+                        guard let entry = try ConfigReader.entry(in: data, definition: definition, name: name),
+                              commands.contains(entry.command) else { return data ?? Data() }
                         return try ConfigReader.updating(data, definition: definition, name: name, entry: nil)
                     } catch TOMLError.unsupportedLayout { throw MCPKitError.unsupportedLayout(agent, url) }
                     catch { throw MCPKitError.unreadableConfig(agent, url, underlying: error) }
                 }, verify: { data in
-                    try ConfigReader.entry(in: data, definition: definition, name: name)?.command != command
+                    guard let entry = try ConfigReader.entry(in: data, definition: definition, name: name) else { return true }
+                    return !commands.contains(entry.command)
                 })
             }
             var remaining: [AgentDefinition] = []

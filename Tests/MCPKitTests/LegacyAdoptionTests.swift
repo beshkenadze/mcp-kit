@@ -67,3 +67,20 @@ func legacyEntriesReconcileWithoutALinkAndPreserveUserFields(agent: AgentID) asy
         #expect(fields["preferences"] as? NSDictionary == ["allow": ["read"]] as NSDictionary)
     }
 }
+
+@Test(arguments: AgentID.allCases)
+func disconnectRemovesLegacyEntries(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    let original = configurationText(agent: agent)
+    try box.write(original, to: config)
+    let kit = MCPKit(legacyIntegration(box), environment: .init(home: box.home, bundleURL: box.bundle, applicationInstalled: { _ in true }))
+    try await kit.disconnect(agent)
+    #expect(await kit.status()[agent] == .disconnected)
+    let definition = try #require(AgentRegistry.load()[agent])
+    let data = try Data(contentsOf: config)
+    #expect(try ConfigReader.entry(in: data, definition: definition, name: box.integration.name) == nil)
+    #expect(String(decoding: data, as: UTF8.self).contains("user-model"))
+    #expect(try Data(contentsOf: URL(fileURLWithPath: config.path + ".mcp-kit.bak")) == Data(original.utf8))
+}
