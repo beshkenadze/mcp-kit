@@ -21,7 +21,21 @@ public struct ToolOutput: Sendable {
     }
 }
 
-public struct ToolContext: Sendable {}
+public struct ToolContext: Sendable {
+    let server: Server?
+    let progressToken: ProgressToken?
+
+    public func progress(_ progress: Double, total: Double? = nil, message: String? = nil) async {
+        guard let server, let progressToken else { return }
+        do {
+            try await server.notify(ProgressNotification.message(.init(
+                progressToken: progressToken, progress: progress, total: total, message: message
+            )))
+        } catch {
+            FileHandle.standardError.write(Data("MCPKitServer progress: \(error.localizedDescription)\n".utf8))
+        }
+    }
+}
 
 public struct Tool: Sendable {
     let name: String
@@ -48,15 +62,24 @@ public struct Tool: Sendable {
         input: Input.Type,
         handler: @escaping @Sendable (Input) async throws -> ToolOutput
     ) {
+        self.init(name, description, input: input) { arguments, _ in try await handler(arguments) }
+    }
+
+    public init<Input: ToolInput>(
+        _ name: String,
+        _ description: String,
+        input: Input.Type,
+        handler: @escaping @Sendable (Input, ToolContext) async throws -> ToolOutput
+    ) {
         self.name = name
         self.description = description
         schema = { try SchemaDecoder.input(input) }
-        invoke = { params, _ in
+        invoke = { params, context in
             let data = try JSONEncoder().encode(Value.object(params.arguments ?? [:]))
             let arguments: Input
             do { arguments = try JSONDecoder().decode(Input.self, from: data) }
             catch let error as DecodingError { throw ArgumentFailure(error) }
-            return try await handler(arguments)
+            return try await handler(arguments, context)
         }
     }
 }
@@ -89,15 +112,17 @@ public struct MCPServer: Sendable {
     public func start(transport: any Transport) async throws {
         let tools = tools
         let definitions = definitions
+        let server = server
         await server.withMethodHandler(ListTools.self) { _ in
             .init(tools: definitions)
         }
-        await server.withMethodHandler(CallTool.self) { params in
+        await server.withMethodHandler(CallTool.self) { [weak server] params in
             guard let tool = tools.first(where: { $0.name == params.name }) else {
                 throw MCPError.invalidParams("Unknown tool: \(params.name)")
             }
             do {
-                let output = try await tool.invoke(params, ToolContext())
+                let context = ToolContext(server: server, progressToken: params._meta?.progressToken)
+                let output = try await tool.invoke(params, context)
                 return .init(content: output.contents, isError: false)
             } catch {
                 return .init(content: ToolOutput.text(error.localizedDescription).contents, isError: true)
