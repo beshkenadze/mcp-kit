@@ -42,6 +42,12 @@ enum SchemaValidator {
                   type != "integer" || number.rounded(.towardZero) == number else {
                 throw fail("Expected \(type)")
             }
+            if let minimum = fields["minimum"].flatMap({ Double($0) }), number < minimum {
+                throw fail("Must be at least \(minimum)")
+            }
+            if let maximum = fields["maximum"].flatMap({ Double($0) }), number > maximum {
+                throw fail("Must be at most \(maximum)")
+            }
         case "boolean":
             guard value.boolValue != nil else { throw fail("Expected boolean") }
         default:

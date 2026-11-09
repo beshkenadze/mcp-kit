@@ -2,10 +2,12 @@ import Foundation
 
 public protocol ToolInput: Decodable, Sendable {
     static var descriptions: [String: String] { get }
+    static var constraints: [String: [SchemaConstraint]] { get }
 }
 
 extension ToolInput {
     public static var descriptions: [String: String] { [:] }
+    public static var constraints: [String: [SchemaConstraint]] { [:] }
 }
 
 public protocol ToolInputEnum: RawRepresentable, CaseIterable, Decodable, Sendable where RawValue == String {}
@@ -115,6 +117,19 @@ final class SchemaDecoder: Decoder {
                     throw unsupported("Description references unknown field '\(key)' in \(type)")
                 }
                 field["description"] = .string(description)
+                properties[key] = .object(field)
+            }
+        }
+        if let constraints = (type as? any ToolInput.Type)?.constraints {
+            for key in constraints.keys.sorted() {
+                guard var field = properties[key]?.objectValue else {
+                    throw unsupported("Constraint references unknown field '\(key)' in \(type)")
+                }
+                do {
+                    for constraint in constraints[key] ?? [] { try constraint.apply(to: &field) }
+                } catch {
+                    throw unsupported("Constraint for '\(key)' in \(type): \(error.localizedDescription)")
+                }
                 properties[key] = .object(field)
             }
         }
