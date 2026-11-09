@@ -29,8 +29,18 @@ Use Swift Testing and Swift 6 concurrency throughout. Tests clean up their own t
 
 - All six tasks completed. No scope deviations; public `start(transport:)` / `stop()` allow the required real-client transport tests. Custom schema decoding must traverse known keyed fields; unsupported probe failures remain fatal even if an input decoder catches them.
 - SDK checkout and tag both resolve to `a0ae212ebf6eab5f754c3129608bc5557637e605`.
-- `swift build` passed. `MCPKIT_LIVE=0 swift test` passed: 42 executed tests, one live test skipped (33 iteration-1 tests including the skipped smoke, 10 server tests). No warnings from our code or swift-sdk were observed.
+- `swift build` passed. `MCPKIT_LIVE=0 swift test` passed: 45 executed tests, one live test skipped (33 iteration-1 tests including the skipped smoke, 13 server tests). No warnings from our code or swift-sdk were observed.
 - Local subprocess check of the built ExampleHelper passed initialization/instructions, tool discovery, ping, typed rendering, token-scoped progress, protocol-only stdout, and clean EOF exit. It used pipes and no agent configuration.
 - The updated live smoke compiles but was not run. No real user configs were changed.
 - Manifest dump confirms only MCPKit/MCPKitServer products, ExampleHelper as an executable target depending only on MCPKitServer, and no dependencies for MCPKit. Sources/MCPKit has no diff from iteration 1.
 - All implementation commits are signed. No push. No open design questions; live Claude Code/Codex verification remains intentionally unexecuted.
+
+## Review follow-up
+
+Each review regression was observed failing before its fix and passing afterward:
+
+- Duplicate tool names now throw `MCPKitServerError.duplicateTool(name)` before schema construction (`8b93aec`).
+- Unknown description keys, including Swift property names that differ from CodingKeys JSON names, now throw `unsupportedInput(tool:reason:)` naming the key (`9c9d1ea`).
+- Tool handler errors use `LocalizedError.errorDescription` when present and otherwise `String(describing:)`, including LocalizedError values with a nil description (`4e88abb`).
+
+Final build and full suite passed without warnings. Live smoke remained disabled; Sources/MCPKit is unchanged.
