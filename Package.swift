@@ -5,6 +5,9 @@ let package = Package(
     name: "MCPKit",
     platforms: [.macOS(.v14)],
     products: [.library(name: "MCPKit", targets: ["MCPKit"])],
+    dependencies: [
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.12.1")
+    ],
     targets: [
         .target(
             name: "MCPKit",
