@@ -48,6 +48,33 @@ func withClient(
 }
 
 struct CallArgs: ToolInput { let frame: Int }
+
+@Test func annotationsSurviveDiscoveryForEveryHandlerShape() async throws {
+    let hints = MCP.Tool.Annotations(
+        title: "Read frame", readOnlyHint: true, destructiveHint: false,
+        idempotentHint: false, openWorldHint: false
+    )
+    let server = try MCPServer(name: "annotations", version: "1") {
+        Tool("ping", "Ping", annotations: hints) { _ in .text("pong") }
+        Tool("frame", "Frame", input: CallArgs.self, annotations: hints) { args in .text("\(args.frame)") }
+        Tool("progress", "Progress", input: CallArgs.self, annotations: hints) { args, _ in .text("\(args.frame)") }
+        Tool("default", "Default") { _ in .text("default") }
+    }
+    try await withClient(server) { client, _ in
+        let tools = try await client.listTools().tools
+        #expect(tools.count == 4)
+        for tool in tools.prefix(3) {
+            #expect(tool.annotations == hints)
+            let wire = try JSONDecoder().decode(Value.self, from: JSONEncoder().encode(tool))
+            #expect(wire.objectValue?["annotations"] == .object([
+                "title": .string("Read frame"), "readOnlyHint": .bool(true),
+                "destructiveHint": .bool(false), "idempotentHint": .bool(false), "openWorldHint": .bool(false)
+            ]))
+        }
+        #expect(tools.last?.annotations.isEmpty == true)
+    }
+}
+
 struct HandlerFailure: LocalizedError {
     var errorDescription: String? { "Render failed" }
 }

@@ -40,16 +40,19 @@ public struct ToolContext: Sendable {
 public struct Tool: Sendable {
     let name: String
     let description: String
+    let annotations: MCP.Tool.Annotations
     let schema: @Sendable () throws -> Value
     let invoke: @Sendable (CallTool.Parameters, ToolContext) async throws -> ToolOutput
 
     public init(
         _ name: String,
         _ description: String,
+        annotations: MCP.Tool.Annotations = nil,
         handler: @escaping @Sendable (ToolContext) async throws -> ToolOutput
     ) {
         self.name = name
         self.description = description
+        self.annotations = annotations
         schema = { .object([
             "type": .string("object"), "properties": .object([:]), "required": .array([])
         ]) }
@@ -60,19 +63,22 @@ public struct Tool: Sendable {
         _ name: String,
         _ description: String,
         input: Input.Type,
+        annotations: MCP.Tool.Annotations = nil,
         handler: @escaping @Sendable (Input) async throws -> ToolOutput
     ) {
-        self.init(name, description, input: input) { arguments, _ in try await handler(arguments) }
+        self.init(name, description, input: input, annotations: annotations) { arguments, _ in try await handler(arguments) }
     }
 
     public init<Input: ToolInput>(
         _ name: String,
         _ description: String,
         input: Input.Type,
+        annotations: MCP.Tool.Annotations = nil,
         handler: @escaping @Sendable (Input, ToolContext) async throws -> ToolOutput
     ) {
         self.name = name
         self.description = description
+        self.annotations = annotations
         schema = { try SchemaDecoder.input(input) }
         invoke = { params, context in
             let data = try JSONEncoder().encode(Value.object(params.arguments ?? [:]))
@@ -107,7 +113,12 @@ public struct MCPServer: Sendable {
         }
         self.tools = declarations
         definitions = try declarations.map { tool in
-            do { return MCP.Tool(name: tool.name, description: tool.description, inputSchema: try tool.schema()) }
+            do {
+                return MCP.Tool(
+                    name: tool.name, description: tool.description,
+                    inputSchema: try tool.schema(), annotations: tool.annotations
+                )
+            }
             catch { throw MCPKitServerError.unsupportedInput(tool: tool.name, reason: error.localizedDescription) }
         }
         server = Server(name: name, version: version, instructions: instructions, capabilities: .init(tools: .init()))
