@@ -2,6 +2,8 @@
 
 Swift 6 tools for shipping a bundled stdio MCP helper and connecting it, with skills, to Claude Code, Claude Desktop, and Codex. Requires macOS 14 or later; the integration app runs without App Sandbox.
 
+Version 0.3.0 adds annotations, structured output, and strict schema validation to `MCPKitServer`, preserving the 0.2.0 public API. Agent integration in `MCPKit` is unchanged. See [CHANGELOG.md](CHANGELOG.md).
+
 | Product | Add to target | Purpose |
 |---|---|---|
 | `MCPKit` | Your application | Register/disconnect the helper and install skills. No external dependencies. |
@@ -41,7 +43,41 @@ enum Format: String, ToolInputEnum { case png, jpeg }
 
 Tool names must be unique; duplicates throw `MCPKitServerError.duplicateTool(name)` during construction. Keys in `descriptions` must match decoded JSON field names (including any `CodingKeys` renaming); unknown keys throw `unsupportedInput(tool:reason:)` naming the key.
 
-Return `.text("...")`, `try .json(encodableValue)` (JSON text), `.image(data, mimeType: "image/png")`, or `.content([MCP.Tool.Content])`. Invalid arguments return a tool error naming the field. Handler errors use `LocalizedError.errorDescription` when present, otherwise `String(describing: error)`. An unknown tool is a protocol `invalidParams` error. Progress is emitted only when that call supplies `_meta.progressToken`.
+Return `.text("...")`, `try .json(encodableValue)` (JSON text), `try .structured(encodableValue, text: "...")`, `.image(data, mimeType: "image/png")`, or `.content([MCP.Tool.Content])`. Structured output sends the encoded value as `structuredContent` and includes one text content block. Omit `text:` to use JSON from the same encoding; an explicit empty string stays empty. `.json` remains text-only, and `.content` preserves the supplied content blocks.
+
+All three handler shapes accept `annotations: MCP.Tool.Annotations`. Omit it for empty SDK annotations, or use `.init(title:readOnlyHint:destructiveHint:idempotentHint:openWorldHint:)`; explicit `false` hints survive discovery. The original initializer signatures also remain available, including for function references.
+
+## Constraints and strict input
+
+Declare inclusive constraints on each `ToolInput` type using decoded JSON field names:
+
+```swift
+struct SearchArgs: ToolInput {
+    let query: String
+    let limit: Int?
+    let categories: [String]?
+    static let descriptions = ["query": "Search text"]
+    static let constraints: [String: [SchemaConstraint]] = [
+        "query": [.length(1...80)],
+        "limit": [.range(1...100)],
+        "categories": [.items(0...24)]
+    ]
+}
+
+let server = try MCPServer(name: "search", version: "1") {
+    Tool("search", "Search the local catalog", input: SearchArgs.self, annotations: .init(
+        title: "Search catalog", readOnlyHint: true, destructiveHint: false, openWorldHint: false
+    )) { args in
+        try .structured(["limit": args.limit ?? 10], text: "Search ready")
+    }
+}
+```
+
+`constraints` defaults to empty. `.range(ClosedRange<Double>)` adds `minimum`/`maximum` to integer or number fields; `.length(ClosedRange<Int>)` adds `minLength`/`maxLength` to strings; `.items(ClosedRange<Int>)` adds `minItems`/`maxItems` to arrays. String lengths count Unicode code points. Put nested constraints on the nested `ToolInput` type, including array and dictionary value types. Use `CodingKeys` names rather than Swift property names; dotted paths are not supported. Unknown keys, constraints on incompatible field types, negative size bounds, non-finite numeric bounds, and repeated constraints of the same kind throw `unsupportedInput(tool:reason:)` during server construction.
+
+The schema sent by `tools/list` is the single validation source. Before Codable decoding or invoking a handler, the server checks raw arguments against that exact stored schema: types, required fields, unknown keys, enums, and every declared bound. All recorded objects, including empty inputs, have `additionalProperties: false`. String-keyed dictionaries accept arbitrary keys and validate each value against their value schema. Explicit `null` is rejected at every input value, including optional fields and collection elements; omit an optional field instead. Omitted arguments are treated as an empty object.
+
+Invalid arguments return `isError: true` with a field path such as `$.schedule.start_minute` or `$.tags[0].value`. Handler and decoding errors use `LocalizedError.errorDescription` when present, otherwise `String(describing: error)`. An unknown tool remains a protocol `invalidParams` error (`-32602`). Progress is emitted only when that call supplies `_meta.progressToken`.
 
 `runStdio()` starts the SDK's `StdioTransport`, waits until its input closes or the task is cancelled, and stops the server. Keep stdout exclusively for protocol traffic; write diagnostics to stderr. Progress-send failures are logged to stderr. The raw SDK remains available through the re-export, including `MCP.Tool.Content`. For embedded transports and tests, `start(transport:)` and `stop()` manage the same server.
 
@@ -90,6 +126,6 @@ Call `disconnectAll()` from the app's uninstall flow **before deleting the app**
 
 ## Verification
 
-Run `swift build` and `swift test`. Registration tests use `MCPEnvironment(home:bundleURL:)` with temporary directories; an injected environment detects no installed Desktop app unless its `applicationInstalled` closure says otherwise. `.live` uses Launch Services. Server tests use a real SDK `Client` and `InMemoryTransport`, including discovery, schemas, errors, content, and progress. The registry and verified source links are in [spec/README.md](spec/README.md); portable before/after fixtures are in `spec/fixtures`.
+Run `swift build` and `swift test`. Registration tests use `MCPEnvironment(home:bundleURL:)` with temporary directories; an injected environment detects no installed Desktop app unless its `applicationInstalled` closure says otherwise. `.live` uses Launch Services. Server tests use a real SDK `Client` and `InMemoryTransport`, including discovery annotations, structured results, schemas, strict input validation, constraint boundaries, errors, content, and progress. Structured-result checks use `client.send(CallTool.request(...))` to inspect the full SDK `CallTool.Result`. The registry and verified source links are in [spec/README.md](spec/README.md); portable before/after fixtures are in `spec/fixtures`.
 
 The live smoke test is disabled by default. After building, `MCPKIT_LIVE=1 swift test --filter liveSmokeRegistersAHelperAndChecksAgentCLIs` opts in to **real Claude Code/Codex config writes**. It copies the built `ExampleHelper` into a temporary app, registers a unique server through `MCPKit`, requires `claude mcp get` to report **Connected**, verifies `codex mcp get` shows the helper, then disconnects on completion or failure. It installs no skills. **This live test was not run during implementation.**

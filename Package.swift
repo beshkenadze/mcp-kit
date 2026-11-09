@@ -15,7 +15,7 @@ let package = Package(
         .target(
             name: "MCPKit",
             path: ".",
-            exclude: ["Tests", "docs", "spec/README.md", "spec/fixtures", "README.md", "Sources/MCPKitServer", "Sources/ExampleHelper"],
+            exclude: ["Tests", "docs", "spec/README.md", "spec/fixtures", "README.md", "CHANGELOG.md", "Sources/MCPKitServer", "Sources/ExampleHelper"],
             sources: ["Sources/MCPKit"],
             resources: [.copy("spec/agents.json")]
         ),
