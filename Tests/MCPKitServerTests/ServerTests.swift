@@ -109,6 +109,35 @@ struct HandlerFailure: LocalizedError {
 
 struct JSONPayload: Encodable { let frame: Int; let label: String }
 
+@Test func structuredOutputPreservesValueAndText() async throws {
+    let payload = JSONPayload(frame: 3, label: "hello")
+    let server = try MCPServer(name: "structured", version: "1") {
+        Tool("automatic", "JSON fallback") { _ in try .structured(payload) }
+        Tool("caption", "Custom text") { _ in try .structured(payload, text: "Rendered") }
+        Tool("empty", "Empty text") { _ in try .structured(payload, text: "") }
+    }
+    try await withClient(server) { client, _ in
+        let expected: Value = .object(["frame": .int(3), "label": .string("hello")])
+        for name in ["automatic", "caption", "empty"] {
+            let request = try await client.send(CallTool.request(.init(name: name)))
+            let result = try await request.value
+            #expect(result.structuredContent == expected)
+            #expect(result.isError == false)
+            #expect(result.content.count == 1)
+            let content = try #require(result.content.first)
+            guard case .text(let text, _, _) = content else {
+                Issue.record("Expected text fallback")
+                continue
+            }
+            if name == "automatic" {
+                #expect(try JSONDecoder().decode(Value.self, from: Data(text.utf8)) == expected)
+            } else {
+                #expect(text == (name == "caption" ? "Rendered" : ""))
+            }
+        }
+    }
+}
+
 @Test func outputFormatsPreserveTheirContent() async throws {
     let bytes = Data([0, 1, 2, 255])
     let raw: [MCP.Tool.Content] = [

@@ -2,6 +2,12 @@ import Foundation
 
 public struct ToolOutput: Sendable {
     let contents: [MCP.Tool.Content]
+    let structuredContent: Value?
+
+    private init(contents: [MCP.Tool.Content], structuredContent: Value? = nil) {
+        self.contents = contents
+        self.structuredContent = structuredContent
+    }
 
     public static func text(_ text: String) -> Self {
         Self(contents: [.text(text: text, annotations: nil, _meta: nil)])
@@ -10,6 +16,15 @@ public struct ToolOutput: Sendable {
     public static func json(_ value: some Encodable) throws -> Self {
         let data = try JSONEncoder().encode(value)
         return .text(String(decoding: data, as: UTF8.self))
+    }
+
+    public static func structured(_ value: some Encodable, text: String? = nil) throws -> Self {
+        let data = try JSONEncoder().encode(value)
+        let structured = try JSONDecoder().decode(Value.self, from: data)
+        return Self(
+            contents: [.text(text: text ?? String(decoding: data, as: UTF8.self), annotations: nil, _meta: nil)],
+            structuredContent: structured
+        )
     }
 
     public static func image(_ data: Data, mimeType: String) -> Self {
@@ -138,7 +153,7 @@ public struct MCPServer: Sendable {
             do {
                 let context = ToolContext(server: server, progressToken: params._meta?.progressToken)
                 let output = try await tool.invoke(params, context)
-                return .init(content: output.contents, isError: false)
+                return .init(content: output.contents, structuredContent: output.structuredContent, isError: false)
             } catch {
                 let description = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
                 return .init(content: ToolOutput.text(description).contents, isError: true)
