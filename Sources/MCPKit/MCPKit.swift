@@ -88,7 +88,7 @@ public actor MCPKit {
             for id in AgentID.allCases where id != agent {
                 let other = registry[id]!
                 do {
-                    if try readEntry(id, definition: other)?.command == command { remaining.append(other) }
+                    if let entry = try readEntry(id, definition: other), commands.contains(entry.command) { remaining.append(other) }
                 } catch {
                     remaining.append(other)
                     logger.warning("Keeping resources for unreadable \(id.rawValue, privacy: .public) configuration")

@@ -210,3 +210,33 @@ func legacyAdoptionIsOptIn(agent: AgentID) async throws {
     #expect(integration.env == ["MODE": "test"])
     #expect(integration.legacyCommands.isEmpty)
 }
+
+@Test(arguments: [AgentID.claudeCode, .codex])
+func legacyEntriesRetainSharedResourcesUntilTheLastDisconnect(remainingAgent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    try box.prepareSkills()
+    try FileManager.default.createDirectory(at: box.home.appendingPathComponent(".codex"), withIntermediateDirectories: true)
+    let shared = box.home.appendingPathComponent(".agents/skills")
+    try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: box.home.appendingPathComponent(".claude/skills"), withDestinationURL: shared)
+    let integration = MCPIntegration(name: box.integration.name, displayName: box.integration.displayName,
+                                     helper: box.integration.helper, arguments: box.integration.arguments,
+                                     env: box.integration.env, skills: box.skilledIntegration.skills,
+                                     legacyCommands: [legacyCommand])
+    let kit = MCPKit(integration, environment: .init(home: box.home, bundleURL: box.bundle))
+    let connectedAgent: AgentID = remainingAgent == .claudeCode ? .codex : .claudeCode
+    try await kit.connect(connectedAgent)
+    let legacyConfig = try configuration(box, agent: remainingAgent)
+    let original = configurationText(agent: remainingAgent)
+    try box.write(original, to: legacyConfig)
+    let skill = shared.appendingPathComponent("filmcraft/SKILL.md")
+    let link = box.home.appendingPathComponent("Library/Application Support/app.filmcraft/mcp-kit/bin/filmcraft")
+    try await kit.disconnect(connectedAgent)
+    #expect(FileManager.default.fileExists(atPath: skill.path))
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil)
+    #expect(try Data(contentsOf: legacyConfig) == Data(original.utf8))
+    try await kit.disconnect(remainingAgent)
+    #expect(!FileManager.default.fileExists(atPath: skill.path))
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == nil)
+}
