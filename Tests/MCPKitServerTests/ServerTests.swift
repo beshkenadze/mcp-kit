@@ -119,3 +119,23 @@ struct JSONPayload: Encodable { let frame: Int; let label: String }
         #expect(name == "ping")
     }
 }
+
+private enum LookupError: Error { case projectNotFound(String) }
+private enum UndescribedError: LocalizedError { case missingDescription }
+
+@Test func plainSwiftErrorReachesTheModel() async throws {
+    let server = try MCPServer(name: "errors", version: "1") {
+        Tool("fail", "Fails") { _ in throw LookupError.projectNotFound("demo") }
+        Tool("undescribed", "No localized description") { _ in throw UndescribedError.missingDescription }
+    }
+    try await withClient(server) { client, _ in
+        for (name, expected) in [
+            ("fail", String(describing: LookupError.projectNotFound("demo"))),
+            ("undescribed", String(describing: UndescribedError.missingDescription))
+        ] {
+            let result = try await client.callTool(name: name)
+            #expect(result.isError == true)
+            #expect(result.content == [.text(text: expected, annotations: nil, _meta: nil)])
+        }
+    }
+}

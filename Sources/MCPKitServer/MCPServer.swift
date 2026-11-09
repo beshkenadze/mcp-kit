@@ -129,7 +129,8 @@ public struct MCPServer: Sendable {
                 let output = try await tool.invoke(params, context)
                 return .init(content: output.contents, isError: false)
             } catch {
-                return .init(content: ToolOutput.text(error.localizedDescription).contents, isError: true)
+                let description = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+                return .init(content: ToolOutput.text(description).contents, isError: true)
             }
         }
         try await server.start(transport: transport)
