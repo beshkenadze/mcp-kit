@@ -79,3 +79,31 @@ struct HandlerFailure: LocalizedError {
         }
     }
 }
+
+struct JSONPayload: Encodable { let frame: Int; let label: String }
+
+@Test func outputFormatsPreserveTheirContent() async throws {
+    let bytes = Data([0, 1, 2, 255])
+    let raw: [MCP.Tool.Content] = [
+        .audio(data: "YWJj", mimeType: "audio/wav", annotations: nil, _meta: .init(additionalFields: ["source": .string("raw")])),
+        .text(text: "caption", annotations: nil, _meta: nil)
+    ]
+    let server = try MCPServer(name: "outputs", version: "1") {
+        Tool("json", "JSON") { _ in try .json(JSONPayload(frame: 3, label: "hello")) }
+        Tool("image", "Image") { _ in .image(bytes, mimeType: "image/png") }
+        Tool("raw", "Raw") { _ in .content(raw) }
+    }
+    try await withClient(server) { client, _ in
+        let json = try await client.callTool(name: "json")
+        guard case .text(let text, _, _) = json.content.first else {
+            Issue.record("Expected JSON text")
+            return
+        }
+        #expect(try JSONDecoder().decode(Value.self, from: Data(text.utf8)) == .object(["frame": .int(3), "label": .string("hello")]))
+        #expect(json.isError == false)
+        let image = try await client.callTool(name: "image")
+        #expect(image.content == [.image(data: bytes.base64EncodedString(), mimeType: "image/png", annotations: nil, _meta: nil)])
+        let content = try await client.callTool(name: "raw")
+        #expect(content.content == raw)
+    }
+}

@@ -6,6 +6,19 @@ public struct ToolOutput: Sendable {
     public static func text(_ text: String) -> Self {
         Self(contents: [.text(text: text, annotations: nil, _meta: nil)])
     }
+
+    public static func json(_ value: some Encodable) throws -> Self {
+        let data = try JSONEncoder().encode(value)
+        return .text(String(decoding: data, as: UTF8.self))
+    }
+
+    public static func image(_ data: Data, mimeType: String) -> Self {
+        Self(contents: [.image(data: data.base64EncodedString(), mimeType: mimeType, annotations: nil, _meta: nil)])
+    }
+
+    public static func content(_ content: [MCP.Tool.Content]) -> Self {
+        Self(contents: content)
+    }
 }
 
 public struct ToolContext: Sendable {}
