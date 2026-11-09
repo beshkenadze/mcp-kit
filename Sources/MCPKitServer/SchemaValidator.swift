@@ -27,6 +27,12 @@ enum SchemaValidator {
             }
         case "array":
             guard let array = value.arrayValue else { throw fail("Expected array") }
+            if let minimum = fields["minItems"]?.intValue, array.count < minimum {
+                throw fail("Must contain at least \(minimum) items")
+            }
+            if let maximum = fields["maxItems"]?.intValue, array.count > maximum {
+                throw fail("Must contain at most \(maximum) items")
+            }
             if let items = fields["items"] {
                 for (index, element) in array.enumerated() {
                     try validate(element, against: items, path: "\(path)[\(index)]")
@@ -36,6 +42,13 @@ enum SchemaValidator {
             switch value {
             case .string, .data: break
             default: throw fail("Expected string")
+            }
+            let count = value.description.unicodeScalars.count
+            if let minimum = fields["minLength"]?.intValue, count < minimum {
+                throw fail("Must contain at least \(minimum) characters")
+            }
+            if let maximum = fields["maxLength"]?.intValue, count > maximum {
+                throw fail("Must contain at most \(maximum) characters")
             }
         case "integer", "number":
             guard let number = Double(value), number.isFinite,
