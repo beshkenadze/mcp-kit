@@ -131,6 +131,10 @@ struct ScalarRoot: ToolInput {
     init(from decoder: any Decoder) throws { _ = try decoder.singleValueContainer().decode(String.self) }
 }
 final class RecursiveArgs: ToolInput { let children: [RecursiveArgs] }
+enum EnumRoot: String, ToolInput, ToolInputEnum { case value }
+struct ArrayRoot: ToolInput {
+    init(from decoder: any Decoder) throws { _ = try [String](from: decoder) }
+}
 
 @Test func unsupportedInputsFailDuringConstruction() throws {
     func rejects<T: ToolInput>(_ type: T.Type) {
@@ -149,6 +153,9 @@ final class RecursiveArgs: ToolInput { let children: [RecursiveArgs] }
     rejects(DecimalArgs.self)
     rejects(SetArgs.self)
     rejects(ScalarRoot.self)
+    rejects(ArrayRoot.self)
+    rejects(EnumRoot.self)
+    rejects(RecursiveArgs.self)
 }
 
 struct BoundedRecursive: ToolInput {
