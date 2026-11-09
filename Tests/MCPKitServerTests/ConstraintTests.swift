@@ -43,9 +43,10 @@ private struct BoundedMood: ToolInput {
         for key in ["calm", "energetic"] {
             let end = try #require(fields[key]?.objectValue?["properties"]?.objectValue)
             #expect(end["bpm"] == .object(["type": "integer", "minimum": 30, "maximum": 300]))
-            #expect(end["text"] == .object(["type": "string", "minLength": 0, "maxLength": 800]))
+            #expect(end["text"] == .object(["type": "string", "maxLength": 800]))
+            #expect(end["text"]?.objectValue?["minLength"] == nil)
             let tags = try #require(end["tags"]?.objectValue)
-            #expect(tags["minItems"] == 0)
+            #expect(tags["minItems"] == nil)
             #expect(tags["maxItems"] == 24)
             #expect(tags["items"]?.objectValue?["properties"]?.objectValue?["value"] == .object([
                 "type": "string", "minLength": 1, "maxLength": 100

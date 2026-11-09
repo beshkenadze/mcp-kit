@@ -16,20 +16,20 @@ public enum SchemaConstraint: Sendable {
             field["minimum"] = .double(bounds.lowerBound)
             field["maximum"] = .double(bounds.upperBound)
         case .length(let bounds):
-            guard field["minLength"] == nil else { throw SchemaFailure(reason: "Repeated length constraint") }
+            guard field["maxLength"] == nil else { throw SchemaFailure(reason: "Repeated length constraint") }
             guard field["type"] == .string("string") else {
                 throw SchemaFailure(reason: "length requires a string field")
             }
             guard bounds.lowerBound >= 0 else { throw SchemaFailure(reason: "length bounds must be nonnegative") }
-            field["minLength"] = .int(bounds.lowerBound)
+            if bounds.lowerBound > 0 { field["minLength"] = .int(bounds.lowerBound) }
             field["maxLength"] = .int(bounds.upperBound)
         case .items(let bounds):
-            guard field["minItems"] == nil else { throw SchemaFailure(reason: "Repeated items constraint") }
+            guard field["maxItems"] == nil else { throw SchemaFailure(reason: "Repeated items constraint") }
             guard field["type"] == .string("array") else {
                 throw SchemaFailure(reason: "items requires an array field")
             }
             guard bounds.lowerBound >= 0 else { throw SchemaFailure(reason: "items bounds must be nonnegative") }
-            field["minItems"] = .int(bounds.lowerBound)
+            if bounds.lowerBound > 0 { field["minItems"] = .int(bounds.lowerBound) }
             field["maxItems"] = .int(bounds.upperBound)
         }
     }
