@@ -77,7 +77,7 @@ struct Collections: ToolInput {
             "properties": .object([
                 "title": .object(["type": .string("string"), "description": .string("Nested title")]),
                 "enabled": .object(["type": .string("boolean")])
-            ]), "required": .array([.string("title")])
+            ]), "required": .array([.string("title")]), "additionalProperties": .bool(false)
         ])
         #expect(properties["details"] == details)
         #expect(properties["objects"] == .object(["type": .string("array"), "items": details]))
@@ -115,7 +115,9 @@ struct EmptyArgs: ToolInput {}
         #expect(fields["formats"] == .object(["type": .string("array"), "items": enumeration]))
         #expect(fields["optional"] == enumeration)
         #expect(schema["required"] == .array([.string("format"), .string("formats")]))
-        #expect(tools.last?.inputSchema == .object(["type": .string("object"), "properties": .object([:]), "required": .array([])]))
+        #expect(tools.last?.inputSchema == .object([
+            "type": .string("object"), "properties": .object([:]), "required": .array([]), "additionalProperties": .bool(false)
+        ]))
         let result = try await client.callTool(name: "enum", arguments: ["format": .string("jpeg"), "formats": .array([])])
         #expect(result.content == [.text(text: "jpeg", annotations: nil, _meta: nil)])
         let empty = try await client.callTool(name: "empty")

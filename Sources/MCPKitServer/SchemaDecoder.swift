@@ -127,7 +127,8 @@ final class SchemaDecoder: Decoder {
         schema = .object([
             "type": .string("object"),
             "properties": .object(properties),
-            "required": .array(required.sorted().map(Value.string))
+            "required": .array(required.sorted().map(Value.string)),
+            "additionalProperties": .bool(false)
         ])
     }
 

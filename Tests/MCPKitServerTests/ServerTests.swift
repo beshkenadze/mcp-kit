@@ -39,7 +39,7 @@ func withClient(
         #expect(tool.name == "ping")
         #expect(tool.description == "Health check")
         #expect(tool.inputSchema == .object([
-            "type": .string("object"), "properties": .object([:]), "required": .array([])
+            "type": .string("object"), "properties": .object([:]), "required": .array([]), "additionalProperties": .bool(false)
         ]))
         let result = try await client.callTool(name: "ping")
         #expect(result.isError == false)

@@ -69,7 +69,8 @@ public struct Tool: Sendable {
         self.description = description
         self.annotations = annotations
         schema = { .object([
-            "type": .string("object"), "properties": .object([:]), "required": .array([])
+            "type": .string("object"), "properties": .object([:]), "required": .array([]),
+            "additionalProperties": .bool(false)
         ]) }
         invoke = { _, context in try await handler(context) }
     }
@@ -147,12 +148,13 @@ public struct MCPServer: Sendable {
             .init(tools: definitions)
         }
         await server.withMethodHandler(CallTool.self) { [weak server] params in
-            guard let tool = tools.first(where: { $0.name == params.name }) else {
+            guard let index = tools.firstIndex(where: { $0.name == params.name }) else {
                 throw MCPError.invalidParams("Unknown tool: \(params.name)")
             }
             do {
+                try SchemaValidator.validate(.object(params.arguments ?? [:]), against: definitions[index].inputSchema)
                 let context = ToolContext(server: server, progressToken: params._meta?.progressToken)
-                let output = try await tool.invoke(params, context)
+                let output = try await tools[index].invoke(params, context)
                 return .init(content: output.contents, structuredContent: output.structuredContent, isError: false)
             } catch {
                 let description = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
@@ -175,8 +177,12 @@ public struct MCPServer: Sendable {
     }
 }
 
-private struct ArgumentFailure: LocalizedError {
+struct ArgumentFailure: LocalizedError {
     let errorDescription: String?
+
+    init(path: String, reason: String) {
+        errorDescription = "Invalid arguments at \(path): \(reason)"
+    }
 
     init(_ error: DecodingError) {
         let path: [any CodingKey]
@@ -199,6 +205,6 @@ private struct ArgumentFailure: LocalizedError {
             reason = error.localizedDescription
         }
         let field = path.map(\.stringValue).joined(separator: ".")
-        errorDescription = "Invalid arguments at \(field.isEmpty ? "<root>" : field): \(reason)"
+        self.init(path: field.isEmpty ? "<root>" : field, reason: reason)
     }
 }
