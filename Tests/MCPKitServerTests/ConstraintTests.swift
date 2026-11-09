@@ -106,6 +106,80 @@ private struct BoundedConfigure: ToolInput {
     ]
 }
 
+private struct ConstraintTypo: ToolInput {
+    let frame: Int
+    static let constraints: [String: [SchemaConstraint]] = ["fram": [.range(0...1)]]
+}
+private struct RenamedConstraintTypo: ToolInput {
+    let frame: Int
+    enum CodingKeys: String, CodingKey { case frame = "frame_number" }
+    static let constraints: [String: [SchemaConstraint]] = ["frame": []]
+}
+private struct NestedConstraintTypo: ToolInput { let children: [ConstraintTypo] }
+private struct WrongRangeType: ToolInput {
+    let value: String
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.range(0...1)]]
+}
+private struct WrongLengthType: ToolInput {
+    let value: Int
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.length(0...1)]]
+}
+private struct WrongItemsType: ToolInput {
+    let value: [String: String]
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.items(0...1)]]
+}
+private struct NegativeLength: ToolInput {
+    let value: String
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.length(-1...1)]]
+}
+private struct NegativeItems: ToolInput {
+    let value: [Int]
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.items(-1...1)]]
+}
+private struct InfiniteRange: ToolInput {
+    let value: Double
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.range(0...Double.infinity)]]
+}
+private struct RepeatedRange: ToolInput {
+    let value: Double
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.range(0...1), .range(0...2)]]
+}
+private struct RepeatedLength: ToolInput {
+    let value: String
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.length(0...1), .length(0...2)]]
+}
+private struct RepeatedItems: ToolInput {
+    let value: [Int]
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.items(0...1), .items(0...2)]]
+}
+
+@Test func invalidConstraintsFailBeforeServerStartup() {
+    func rejects<Input: ToolInput>(_ input: Input.Type, field: String, reason expected: String) {
+        do {
+            _ = try MCPServer(name: "bad-constraints", version: "1") {
+                Tool("bad", "Bad constraints", input: input) { _ in .text("never") }
+            }
+            Issue.record("Accepted invalid constraints on \(input)")
+        } catch MCPKitServerError.unsupportedInput(let tool, let reason) {
+            #expect(tool == "bad")
+            #expect(reason.contains(field))
+            #expect(reason.contains(expected))
+        } catch { Issue.record("Unexpected error: \(error)") }
+    }
+    rejects(ConstraintTypo.self, field: "fram", reason: "unknown field")
+    rejects(RenamedConstraintTypo.self, field: "frame", reason: "unknown field")
+    rejects(NestedConstraintTypo.self, field: "fram", reason: "unknown field")
+    rejects(WrongRangeType.self, field: "value", reason: "numeric field")
+    rejects(WrongLengthType.self, field: "value", reason: "string field")
+    rejects(WrongItemsType.self, field: "value", reason: "array field")
+    rejects(NegativeLength.self, field: "value", reason: "nonnegative")
+    rejects(NegativeItems.self, field: "value", reason: "nonnegative")
+    rejects(InfiniteRange.self, field: "value", reason: "finite")
+    rejects(RepeatedRange.self, field: "value", reason: "Repeated")
+    rejects(RepeatedLength.self, field: "value", reason: "Repeated")
+    rejects(RepeatedItems.self, field: "value", reason: "Repeated")
+}
+
 @Test func numericConstraintsArePublishedAndEnforcedAtTheirBoundaries() async throws {
     let server = try MCPServer(name: "constraints", version: "1") {
         Tool("configure", "Configure", input: BoundedConfigure.self) { _ in .text("accepted") }

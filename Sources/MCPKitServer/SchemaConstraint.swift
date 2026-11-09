@@ -6,6 +6,7 @@ public enum SchemaConstraint: Sendable {
     func apply(to field: inout [String: Value]) throws {
         switch self {
         case .range(let bounds):
+            guard field["minimum"] == nil else { throw SchemaFailure(reason: "Repeated range constraint") }
             guard field["type"] == .string("number") || field["type"] == .string("integer") else {
                 throw SchemaFailure(reason: "range requires a numeric field")
             }
@@ -15,6 +16,7 @@ public enum SchemaConstraint: Sendable {
             field["minimum"] = .double(bounds.lowerBound)
             field["maximum"] = .double(bounds.upperBound)
         case .length(let bounds):
+            guard field["minLength"] == nil else { throw SchemaFailure(reason: "Repeated length constraint") }
             guard field["type"] == .string("string") else {
                 throw SchemaFailure(reason: "length requires a string field")
             }
@@ -22,6 +24,7 @@ public enum SchemaConstraint: Sendable {
             field["minLength"] = .int(bounds.lowerBound)
             field["maxLength"] = .int(bounds.upperBound)
         case .items(let bounds):
+            guard field["minItems"] == nil else { throw SchemaFailure(reason: "Repeated items constraint") }
             guard field["type"] == .string("array") else {
                 throw SchemaFailure(reason: "items requires an array field")
             }
