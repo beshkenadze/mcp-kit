@@ -32,7 +32,7 @@ func liveSmokeRegistersAHelperAndChecksAgentCLIs() async throws {
             #expect(output.contains(name))
             #expect(output.contains("mcp-kit/bin/\(name)"))
             if executable == "claude" {
-                #expect(output.range(of: #"(?im)^\s*Status:\s*(?:✓\s*)?Connected\s*$"#, options: .regularExpression) != nil)
+                #expect(output.range(of: #"(?im)^\s*Status:\s*(?:[✓✔]\s*)?Connected\s*$"#, options: .regularExpression) != nil)
             }
         }
     } catch {
