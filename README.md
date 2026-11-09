@@ -1,6 +1,58 @@
 # MCPKit
 
-A dependency-free Swift 6 actor for connecting a bundled stdio MCP helper and skills to Claude Code, Claude Desktop, and Codex. Requires macOS 14 or later and an app without App Sandbox.
+Swift 6 tools for shipping a bundled stdio MCP helper and connecting it, with skills, to Claude Code, Claude Desktop, and Codex. Requires macOS 14 or later; the integration app runs without App Sandbox.
+
+| Product | Add to target | Purpose |
+|---|---|---|
+| `MCPKit` | Your application | Register/disconnect the helper and install skills. No external dependencies. |
+| `MCPKitServer` | Your command-line helper | Declare tools, derive input schemas, decode calls, report progress, and serve stdio. Re-exports the official `MCP` SDK. |
+
+The package uses [swift-sdk](https://github.com/modelcontextprotocol/swift-sdk) `from: "0.12.1"`; the checked-in resolution is `0.12.1`. Only `MCPKitServer` depends on its `MCP` product. `ExampleHelper` is an executable target for the example and smoke checks, with only `MCPKitServer` as its dependency; it is not declared as a package product.
+
+## Complete helper
+
+The following is also [Sources/ExampleHelper/ExampleHelper.swift](Sources/ExampleHelper/ExampleHelper.swift). Add `MCPKitServer` to your helper target and use a single import:
+
+```swift
+import MCPKitServer
+
+struct RenderArgs: ToolInput {
+    let frame: Int
+    let format: Format?
+    static let descriptions = ["frame": "Frame number", "format": "Output format"]
+}
+
+enum Format: String, ToolInputEnum { case png, jpeg }
+
+@main struct Helper {
+    static func main() async throws {
+        try await MCPServer(name: "filmcraft", version: "1.0", instructions: "Edits FilmCraft projects.") {
+            Tool("render_frame", "Render one frame", input: RenderArgs.self) { args, context in
+                await context.progress(0.5, total: 1, message: "Rendering")
+                return .text("Rendered \(args.frame)")
+            }
+            Tool("ping", "Health check") { _ in .text("pong") }
+        }.runStdio()
+    }
+}
+```
+
+`Tool` supports handlers taking a context alone, typed input alone, or typed input and context. `ToolInput` is `Decodable & Sendable`; `descriptions` defaults to empty. Schemas cover strings, URI-formatted URLs, signed/unsigned integers through 64 bits, floats, booleans, arrays, string-keyed dictionaries, nested objects, and string-backed `ToolInputEnum` cases. Keys decoded with `decodeIfPresent` are optional. Empty input is an object. Unsupported shapes, single-value roots, and recursive inputs throw `MCPKitServerError.unsupportedInput(tool:reason:)` when constructing the server. Schema recording runs your decoder with representative values; custom decoders must permit that traversal and use known keyed fields (or the supported collection types).
+
+Return `.text("...")`, `try .json(encodableValue)` (JSON text), `.image(data, mimeType: "image/png")`, or `.content([MCP.Tool.Content])`. Invalid arguments return a tool error naming the field; thrown handler errors return their `localizedDescription`. An unknown tool is a protocol `invalidParams` error. Progress is emitted only when that call supplies `_meta.progressToken`.
+
+`runStdio()` starts the SDK's `StdioTransport`, waits until its input closes or the task is cancelled, and stops the server. Keep stdout exclusively for protocol traffic; write diagnostics to stderr. Progress-send failures are logged to stderr. The raw SDK remains available through the re-export, including `MCP.Tool.Content`. For embedded transports and tests, `start(transport:)` and `stop()` manage the same server.
+
+## Embed and sign the helper
+
+1. Create a macOS command-line executable target in your Xcode app project, add `MCPKitServer` to that target, and put the helper code there. Add `MCPKit` to the app target.
+2. Add the helper target to the app's **Build Phases → Target Dependencies**.
+3. Add a **Copy Files** build phase to the app. Set **Destination: Wrapper**, **Subpath: Contents/Helpers**, add the helper executable from Products, and enable **Code Sign On Copy**. Name the executable `filmcraft-cli` to match the app declaration below.
+4. Use your signing team for both targets and enable **Hardened Runtime** (`ENABLE_HARDENED_RUNTIME = YES`) for the helper and app. Sign the embedded helper before signing the enclosing app. For a manual release pipeline, the inner signing command is `codesign --force --options runtime --timestamp --sign "Developer ID Application: Your Team (TEAMID)" FilmCraft.app/Contents/Helpers/filmcraft-cli`; then sign the outer app with the same identity and runtime option. Verify the completed bundle with `codesign --verify --deep --strict FilmCraft.app` and inspect the helper's runtime flag with `codesign -d --verbose=4 FilmCraft.app/Contents/Helpers/filmcraft-cli`.
+
+Ship `CFBundleIdentifier` and `CFBundleShortVersionString` in the app's `Contents/Info.plist`. Bundled paths below are relative to the app bundle root. If a helper needs its own location, resolve its executable with `realpath`, because agents invoke it through a symlink. This example needs no bundle-relative assets or command-line arguments.
+
+## Connect from the app
 
 ```swift
 import MCPKit
@@ -9,7 +61,6 @@ let integration = MCPIntegration(
     name: "filmcraft",
     displayName: "FilmCraft",
     helper: .bundled("Contents/Helpers/filmcraft-cli"),
-    arguments: ["mcp"],
     skills: [.bundled("Skills/filmcraft")]
 )
 let kit = MCPKit(integration)
@@ -21,7 +72,9 @@ try await kit.disconnect(.claudeCode)
 try await kit.disconnectAll()
 ```
 
-Bundled paths are relative to the app bundle root. Ship an executable helper, a `CFBundleIdentifier` and `CFBundleShortVersionString` in `Contents/Info.plist`, and a `SKILL.md` in each supplied skill folder. `env:` accepts explicit string environment variables. The helper should resolve its executable with `realpath`, because its invocation path is a symlink.
+Use `arguments:` only if your helper expects them; `ExampleHelper` starts serving immediately. `env:` accepts explicit string environment variables.
+
+Keep the bundled skill at `Skills/filmcraft/SKILL.md` (Copy Files destination Wrapper, subpath `Skills`). If you instead copy skills into the app's resources, declare `.bundled("Contents/Resources/Skills/filmcraft")`. MCPKit installs marked copies under `~/.claude/skills/filmcraft` for Claude Code and `~/.agents/skills/filmcraft` for Codex. Claude Desktop skills are managed in the cloud and are not installed locally by MCPKit.
 
 The stable helper path is `~/Library/Application Support/<bundle-id>/mcp-kit/bin/<name>`. A server entry belongs to this integration only when its command equals that path. The kit owns `command`, `args`, `env`, and `type` where the agent template includes it; updates preserve all other user fields and subtables. `connect(_:force:)` replaces a foreign entry only with `force: true`; force never takes over an unmarked or foreign skill folder. Connecting an undetected agent throws `MCPKitError.agentNotFound`. `ConnectResult.restartHint` supplies the registry's restart guidance.
 
@@ -33,6 +86,8 @@ Skills carry `.mcp-kit.json` with the owning bundle ID and app version. Shared d
 
 Call `disconnectAll()` from the app's uninstall flow **before deleting the app**. Otherwise the helper symlink will dangle. The kit does not watch files, restart agents, or provide UI.
 
-Tests use `MCPEnvironment(home:bundleURL:)` with temporary directories. An injected environment detects no installed Desktop app unless its `applicationInstalled` closure says otherwise; `.live` uses Launch Services. Run `swift build` and `swift test`. The registry and verified source links are in [spec/README.md](spec/README.md); portable before/after fixtures are in `spec/fixtures`.
+## Verification
 
-The live registration smoke test is disabled by default. Only `MCPKIT_LIVE=1 swift test --filter liveSmokeRegistersAHelperAndChecksAgentCLIs` opts in to real Claude Code/Codex config writes and read-only `claude mcp get` / `codex mcp get` checks. It uses a uniquely named temporary helper with no skills and disconnects on completion or failure. It checks registration, not an MCP protocol handshake. **It was not run during implementation.**
+Run `swift build` and `swift test`. Registration tests use `MCPEnvironment(home:bundleURL:)` with temporary directories; an injected environment detects no installed Desktop app unless its `applicationInstalled` closure says otherwise. `.live` uses Launch Services. Server tests use a real SDK `Client` and `InMemoryTransport`, including discovery, schemas, errors, content, and progress. The registry and verified source links are in [spec/README.md](spec/README.md); portable before/after fixtures are in `spec/fixtures`.
+
+The live smoke test is disabled by default. After building, `MCPKIT_LIVE=1 swift test --filter liveSmokeRegistersAHelperAndChecksAgentCLIs` opts in to **real Claude Code/Codex config writes**. It copies the built `ExampleHelper` into a temporary app, registers a unique server through `MCPKit`, requires `claude mcp get` to report **Connected**, verifies `codex mcp get` shows the helper, then disconnects on completion or failure. It installs no skills. **This live test was not run during implementation.**
