@@ -111,7 +111,9 @@ final class SchemaDecoder: Decoder {
         }
         if let descriptions = (type as? any ToolInput.Type)?.descriptions {
             for (key, description) in descriptions {
-                guard var field = properties[key]?.objectValue else { continue }
+                guard var field = properties[key]?.objectValue else {
+                    throw unsupported("Description references unknown field '\(key)' in \(type)")
+                }
                 field["description"] = .string(description)
                 properties[key] = .object(field)
             }

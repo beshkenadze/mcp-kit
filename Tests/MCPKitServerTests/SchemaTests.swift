@@ -201,3 +201,30 @@ struct SwallowedUnsupported: ToolInput {
         #expect(reason.contains("date"))
     } catch { Issue.record("Unexpected error: \(error)") }
 }
+
+private struct Typo: ToolInput {
+    let frame: Int
+    static let descriptions = ["fram": "Frame number"]
+}
+
+private struct RenamedDescriptionTypo: ToolInput {
+    let frame: Int
+    enum CodingKeys: String, CodingKey { case frame = "frame_number" }
+    static let descriptions = ["frame": "Frame number"]
+}
+
+@Test func descriptionForUnknownFieldIsRejected() {
+    func rejects<Input: ToolInput>(_ type: Input.Type, unknownKey: String) {
+        do {
+            _ = try MCPServer(name: "descriptions", version: "1") {
+                Tool("t", "A frame", input: type) { _ in .text("") }
+            }
+            Issue.record("Accepted description for unknown field \(unknownKey)")
+        } catch MCPKitServerError.unsupportedInput(let tool, let reason) {
+            #expect(tool == "t")
+            #expect(reason.contains(unknownKey))
+        } catch { Issue.record("Unexpected error: \(error)") }
+    }
+    rejects(Typo.self, unknownKey: "fram")
+    rejects(RenamedDescriptionTypo.self, unknownKey: "frame")
+}
