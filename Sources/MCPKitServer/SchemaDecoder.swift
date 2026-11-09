@@ -33,6 +33,10 @@ struct SchemaFailure: Error, LocalizedError {
     var errorDescription: String? { reason }
 }
 
+final class SchemaFailureState {
+    var error: (any Error)?
+}
+
 final class SchemaDecoder: Decoder {
     var codingPath: [any CodingKey] = []
     let userInfo: [CodingUserInfoKey: Any] = [:]
@@ -42,10 +46,12 @@ final class SchemaDecoder: Decoder {
     var schema: Value?
     var isKeyed = false
     var ancestors: [ObjectIdentifier] = []
+    var failureState = SchemaFailureState()
 
     static func input<T: ToolInput>(_ type: T.Type) throws -> Value {
         let decoder = SchemaDecoder()
         _ = try decoder.sample(type)
+        if let error = decoder.failureState.error { throw error }
         guard let schema = decoder.schema, schema.objectValue?["type"] == .string("object") else {
             throw SchemaFailure(reason: "The input root must be an object")
         }
@@ -53,6 +59,20 @@ final class SchemaDecoder: Decoder {
     }
 
     func sample<T: Decodable>(_ type: T.Type) throws -> T {
+        do { return try record(type) }
+        catch {
+            if failureState.error == nil { failureState.error = error }
+            throw error
+        }
+    }
+
+    private func unsupported(_ reason: String) -> SchemaFailure {
+        let error = SchemaFailure(reason: reason)
+        if failureState.error == nil { failureState.error = error }
+        return error
+    }
+
+    private func record<T: Decodable>(_ type: T.Type) throws -> T {
         let identifier = ObjectIdentifier(type)
         guard !ancestors.contains(identifier) else { throw SchemaFailure(reason: "Recursive input: \(type)") }
         ancestors.append(identifier)
@@ -114,11 +134,11 @@ final class SchemaDecoder: Decoder {
     }
 
     func unkeyedContainer() throws -> any UnkeyedDecodingContainer {
-        throw SchemaFailure(reason: "Unsupported unkeyed input at \(codingPath.map(\.stringValue).joined(separator: "."))")
+        throw unsupported("Unsupported unkeyed input at \(codingPath.map(\.stringValue).joined(separator: "."))")
     }
 
     func singleValueContainer() throws -> any SingleValueDecodingContainer {
-        throw SchemaFailure(reason: "Unsupported single-value input at \(codingPath.map(\.stringValue).joined(separator: "."))")
+        throw unsupported("Unsupported single-value input at \(codingPath.map(\.stringValue).joined(separator: "."))")
     }
 
     struct Fields<Key: CodingKey>: KeyedDecodingContainerProtocol {
@@ -133,6 +153,7 @@ final class SchemaDecoder: Decoder {
 
         func decode<T: Decodable>(_ type: T.Type, forKey key: Key) throws -> T {
             let child = SchemaDecoder()
+            child.failureState = decoder.failureState
             child.ancestors = decoder.ancestors
             child.codingPath = codingPath + [key]
             let value = try child.sample(type)
@@ -161,13 +182,13 @@ final class SchemaDecoder: Decoder {
         }
 
         func nestedContainer<NestedKey: CodingKey>(keyedBy type: NestedKey.Type, forKey key: Key) throws -> KeyedDecodingContainer<NestedKey> {
-            throw SchemaFailure(reason: "Use a nested Decodable type for \(key.stringValue)")
+            throw decoder.unsupported("Use a nested Decodable type for \(key.stringValue)")
         }
         func nestedUnkeyedContainer(forKey key: Key) throws -> any UnkeyedDecodingContainer {
-            throw SchemaFailure(reason: "Use an Array property for \(key.stringValue)")
+            throw decoder.unsupported("Use an Array property for \(key.stringValue)")
         }
-        func superDecoder() throws -> any Decoder { throw SchemaFailure(reason: "Superclass decoding is unsupported") }
-        func superDecoder(forKey key: Key) throws -> any Decoder { throw SchemaFailure(reason: "Superclass decoding is unsupported") }
+        func superDecoder() throws -> any Decoder { throw decoder.unsupported("Superclass decoding is unsupported") }
+        func superDecoder(forKey key: Key) throws -> any Decoder { throw decoder.unsupported("Superclass decoding is unsupported") }
     }
 }
 
@@ -178,6 +199,7 @@ private protocol SchemaCollection {
 extension Array: SchemaCollection where Element: Decodable {
     fileprivate static func sample(using decoder: SchemaDecoder) throws -> Any {
         let child = SchemaDecoder()
+        child.failureState = decoder.failureState
         child.ancestors = decoder.ancestors
         child.codingPath = decoder.codingPath
         let element = try child.sample(Element.self)
@@ -189,6 +211,7 @@ extension Array: SchemaCollection where Element: Decodable {
 extension Dictionary: SchemaCollection where Key == String, Value: Decodable {
     fileprivate static func sample(using decoder: SchemaDecoder) throws -> Any {
         let child = SchemaDecoder()
+        child.failureState = decoder.failureState
         child.ancestors = decoder.ancestors
         child.codingPath = decoder.codingPath
         let value = try child.sample(Value.self)

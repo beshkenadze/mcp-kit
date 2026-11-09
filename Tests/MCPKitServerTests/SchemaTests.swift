@@ -173,3 +173,24 @@ struct BoundedRecursive: ToolInput {
         #expect(reason.contains("Recursive input"))
     } catch { Issue.record("Unexpected error: \(error)") }
 }
+
+struct SwallowedUnsupported: ToolInput {
+    let date: Date?
+    enum Keys: String, CodingKey { case date }
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        date = try? container.decode(Date.self, forKey: .date)
+    }
+}
+
+@Test func unsupportedFieldsCannotBeHiddenByCustomDecoders() {
+    do {
+        _ = try MCPServer(name: "bad", version: "1") {
+            Tool("swallowed", "Unsupported", input: SwallowedUnsupported.self) { _ in .text("never") }
+        }
+        Issue.record("Accepted a swallowed unsupported field")
+    } catch MCPKitServerError.unsupportedInput(let tool, let reason) {
+        #expect(tool == "swallowed")
+        #expect(reason.contains("date"))
+    } catch { Issue.record("Unexpected error: \(error)") }
+}
