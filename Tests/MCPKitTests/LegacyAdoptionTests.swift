@@ -84,3 +84,129 @@ func disconnectRemovesLegacyEntries(agent: AgentID) async throws {
     #expect(String(decoding: data, as: UTF8.self).contains("user-model"))
     #expect(try Data(contentsOf: URL(fileURLWithPath: config.path + ".mcp-kit.bak")) == Data(original.utf8))
 }
+
+private struct ReplacingConfigWriter: ConfigWriter {
+    let replacement: Data
+
+    func update(_ url: URL, transform: @Sendable (Data?) throws -> Data, verify: @Sendable (Data?) throws -> Bool) throws {
+        try replacement.write(to: url)
+        try FileWriter().update(url, transform: transform, verify: verify)
+    }
+}
+
+@Test(arguments: AgentID.allCases, [false, true])
+func legacyAdoptionRechecksOwnershipInsideTheTransform(agent: AgentID, reconcile: Bool) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    try box.write(configurationText(agent: agent), to: config)
+    let foreignCommand = "/other/FilmCraft.app/Contents/MacOS/FilmCraft"
+    let replacement = Data(configurationText(agent: agent, command: foreignCommand).utf8)
+    let kit = MCPKit(legacyIntegration(box), environment: .init(home: box.home, bundleURL: box.bundle, applicationInstalled: { _ in true }),
+                     writer: ReplacingConfigWriter(replacement: replacement))
+    #expect(await kit.status()[agent] == .outdated)
+    do {
+        if reconcile { try await kit.reconcile() }
+        else { try await kit.connect(agent) }
+        Issue.record("Expected conflict")
+    } catch MCPKitError.conflict(let owner, let command) {
+        #expect(owner == agent)
+        #expect(command == foreignCommand)
+    }
+    #expect(await kit.status()[agent] == .conflict)
+    #expect(try Data(contentsOf: config) == replacement)
+    #expect(!FileManager.default.fileExists(atPath: config.path + ".mcp-kit.bak"))
+}
+
+@Test(arguments: AgentID.allCases)
+func legacyDisconnectPreservesAnEntryThatBecomesForeign(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    try box.write(configurationText(agent: agent), to: config)
+    let replacement = Data(configurationText(agent: agent, command: "/foreign").utf8)
+    let kit = MCPKit(legacyIntegration(box), environment: .init(home: box.home, bundleURL: box.bundle, applicationInstalled: { _ in true }),
+                     writer: ReplacingConfigWriter(replacement: replacement))
+    #expect(await kit.status()[agent] == .outdated)
+    try await kit.disconnect(agent)
+    #expect(await kit.status()[agent] == .conflict)
+    #expect(try Data(contentsOf: config) == replacement)
+    #expect(!FileManager.default.fileExists(atPath: config.path + ".mcp-kit.bak"))
+}
+
+@Test(arguments: AgentID.allCases, [
+    "/other/FilmCraft.app/Contents/MacOS/FilmCraft",
+    legacyCommand + "-other",
+    legacyCommand + "/",
+    "/Applications/FilmCraft.app/Contents/MacOS/../MacOS/FilmCraft",
+    legacyCommand.lowercased()
+])
+func legacyOwnershipRequiresAnExactCommand(agent: AgentID, command: String) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    let original = configurationText(agent: agent, command: command)
+    try box.write(original, to: config)
+    let kit = MCPKit(legacyIntegration(box), environment: .init(home: box.home, bundleURL: box.bundle, applicationInstalled: { _ in true }))
+    #expect(await kit.status()[agent] == .conflict)
+    do { try await kit.connect(agent); Issue.record("Expected conflict") }
+    catch MCPKitError.conflict(let owner, let existing) {
+        #expect(owner == agent)
+        #expect(existing == command)
+    }
+    try await kit.reconcile()
+    try await kit.disconnect(agent)
+    #expect(await kit.status()[agent] == .conflict)
+    #expect(try Data(contentsOf: config) == Data(original.utf8))
+    #expect(!FileManager.default.fileExists(atPath: config.path + ".mcp-kit.bak"))
+}
+
+@Test(arguments: AgentID.allCases)
+func legacyAdoptionUsesTheLatestOwnedEntryAndUserFields(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    try box.write(configurationText(agent: agent), to: config)
+    let otherLegacyCommand = "/Applications/Older FilmCraft.app/Contents/MacOS/FilmCraft"
+    let replacement = Data(configurationText(agent: agent, command: otherLegacyCommand)
+        .replacingOccurrences(of: "user-model", with: "latest-model").utf8)
+    let kit = MCPKit(legacyIntegration(box, commands: ["/unused", legacyCommand, otherLegacyCommand]),
+                     environment: .init(home: box.home, bundleURL: box.bundle, applicationInstalled: { _ in true }),
+                     writer: ReplacingConfigWriter(replacement: replacement))
+    #expect(await kit.status()[agent] == .outdated)
+    try await kit.connect(agent)
+    #expect(await kit.status()[agent] == .connected)
+    #expect(try String(contentsOf: config, encoding: .utf8).contains("latest-model"))
+    #expect(try Data(contentsOf: URL(fileURLWithPath: config.path + ".mcp-kit.bak")) == replacement)
+}
+
+@Test(arguments: AgentID.allCases)
+func legacyAdoptionIsOptIn(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    let original = configurationText(agent: agent)
+    try box.write(original, to: config)
+    #expect(box.integration.legacyCommands.isEmpty)
+    let kit = box.kit(desktopInstalled: true)
+    #expect(await kit.status()[agent] == .conflict)
+    do { try await kit.connect(agent); Issue.record("Expected conflict") }
+    catch MCPKitError.conflict(let owner, let command) {
+        #expect(owner == agent)
+        #expect(command == legacyCommand)
+    }
+    try await kit.reconcile()
+    try await kit.disconnect(agent)
+    #expect(try Data(contentsOf: config) == Data(original.utf8))
+    #expect(!FileManager.default.fileExists(atPath: config.path + ".mcp-kit.bak"))
+}
+
+@Test func originalIntegrationInitializerReferencesRemainSourceCompatible() {
+    let make: (String, String, BundledResource, [String], [String: String], [BundledResource]) -> MCPIntegration =
+        MCPIntegration.init(name:displayName:helper:arguments:env:skills:)
+    let integration = make("filmcraft", "FilmCraft", .bundled("helper"), ["mcp"], ["MODE": "test"], [])
+    #expect(integration.name == "filmcraft")
+    #expect(integration.arguments == ["mcp"])
+    #expect(integration.env == ["MODE": "test"])
+    #expect(integration.legacyCommands.isEmpty)
+}
