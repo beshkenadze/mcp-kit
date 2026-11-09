@@ -8,6 +8,16 @@ extension ToolInput {
     public static var descriptions: [String: String] { [:] }
 }
 
+public protocol ToolInputEnum: RawRepresentable, CaseIterable, Decodable, Sendable where RawValue == String {}
+
+extension ToolInputEnum {
+    static var schemaValues: [String] { allCases.map(\.rawValue) }
+    static func schemaSample() throws -> Any {
+        guard let first = allCases.first else { throw SchemaFailure(reason: "An input enum must have a case") }
+        return first
+    }
+}
+
 public enum MCPKitServerError: Error, LocalizedError {
     case unsupportedInput(tool: String, reason: String)
 
@@ -60,10 +70,18 @@ final class SchemaDecoder: Decoder {
             schema = .object(["type": .string("string"), "format": .string("uri")])
             return URL(string: "https://example.com")! as! T
         }
+        if let enumeration = type as? any ToolInputEnum.Type {
+            schema = .object(["type": .string("string"), "enum": .array(enumeration.schemaValues.map(Value.string))])
+            return try enumeration.schemaSample() as! T
+        }
         if let collection = type as? any SchemaCollection.Type {
             return try collection.sample(using: self) as! T
         }
         let value = try T(from: self)
+        if schema == nil {
+            let mirror = Mirror(reflecting: value)
+            if mirror.displayStyle == .struct, mirror.children.isEmpty { isKeyed = true }
+        }
         if let descriptions = (type as? any ToolInput.Type)?.descriptions {
             for (key, description) in descriptions {
                 guard var field = properties[key]?.objectValue else { continue }

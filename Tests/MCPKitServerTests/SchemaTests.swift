@@ -92,3 +92,33 @@ struct Collections: ToolInput {
         #expect(result.content == [.text(text: "child:5:label", annotations: nil, _meta: nil)])
     }
 }
+
+enum Format: String, ToolInputEnum { case png, jpeg }
+struct EnumArgs: ToolInput {
+    let format: Format
+    let formats: [Format]
+    let optional: Format?
+}
+struct EmptyArgs: ToolInput {}
+
+@Test func enumAndEmptyObjectInputs() async throws {
+    let server = try MCPServer(name: "schemas", version: "1") {
+        Tool("enum", "Formats", input: EnumArgs.self) { args in .text(args.format.rawValue) }
+        Tool("empty", "Empty", input: EmptyArgs.self) { _ in .text("empty") }
+    }
+    try await withClient(server) { client, _ in
+        let tools = try await client.listTools().tools
+        let schema = try #require(tools.first?.inputSchema.objectValue)
+        let fields = try #require(schema["properties"]?.objectValue)
+        let enumeration: Value = .object(["type": .string("string"), "enum": .array([.string("png"), .string("jpeg")])])
+        #expect(fields["format"] == enumeration)
+        #expect(fields["formats"] == .object(["type": .string("array"), "items": enumeration]))
+        #expect(fields["optional"] == enumeration)
+        #expect(schema["required"] == .array([.string("format"), .string("formats")]))
+        #expect(tools.last?.inputSchema == .object(["type": .string("object"), "properties": .object([:]), "required": .array([])]))
+        let result = try await client.callTool(name: "enum", arguments: ["format": .string("jpeg"), "formats": .array([])])
+        #expect(result.content == [.text(text: "jpeg", annotations: nil, _meta: nil)])
+        let empty = try await client.callTool(name: "empty")
+        #expect(empty.content == [.text(text: "empty", annotations: nil, _meta: nil)])
+    }
+}
