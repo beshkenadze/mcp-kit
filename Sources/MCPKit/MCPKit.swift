@@ -20,7 +20,7 @@ public actor MCPKit {
                 do {
                     let url = environment.expand(definition.config.path)
                     guard let entry = try ConfigReader.entry(in: ConfigReader.data(at: url), definition: definition, name: integration.name) else { return .disconnected }
-                    guard entry.command == (try helperLink().path) else { return .conflict }
+                    guard try ownedCommands().contains(entry.command) else { return .conflict }
                     guard entry == (try desiredEntry()) else { return .outdated }
                     if let directory = skillDirectory(definition), try skillInstaller().isOutdated(in: directory) { return .outdated }
                     return .connected
@@ -39,11 +39,12 @@ public actor MCPKit {
         do {
             try updateHelperLink()
             let desired = try desiredEntry()
+            let commands = try ownedCommands()
             let name = integration.name
             try writer.update(url, transform: { data in
                 do {
                     let existing = try ConfigReader.entry(in: data, definition: definition, name: name)
-                    if let existing, existing.command != desired.command, !force {
+                    if let existing, !commands.contains(existing.command), !force {
                         throw MCPKitError.conflict(agent, existingCommand: existing.command)
                     }
                     return try ConfigReader.updating(data, definition: definition, name: name, entry: desired)
@@ -115,8 +116,10 @@ public actor MCPKit {
     public func reconcile() throws {
         let link = try helperLink()
         let linkExists = (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil
+        let commands = try ownedCommands()
         let hasOwnedEntry = try AgentRegistry.load().contains { agent, definition in
-            (try? readEntry(agent, definition: definition))?.command == link.path
+            guard let entry = try? readEntry(agent, definition: definition) else { return false }
+            return commands.contains(entry.command)
         }
         guard linkExists || hasOwnedEntry else { return }
         try updateHelperLink()
@@ -164,6 +167,10 @@ public actor MCPKit {
 
     func desiredEntry() throws -> ServerEntry {
         ServerEntry(command: try helperLink().path, args: integration.arguments, env: integration.env)
+    }
+
+    private func ownedCommands() throws -> [String] {
+        [try helperLink().path] + integration.legacyCommands
     }
 
     func updateHelperLink() throws {

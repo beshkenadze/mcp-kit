@@ -27,14 +27,20 @@ public struct MCPIntegration: Sendable {
     public let arguments: [String]
     public let env: [String: String]
     public let skills: [BundledResource]
+    public let legacyCommands: [String]
 
     public init(name: String, displayName: String, helper: BundledResource, arguments: [String] = [], env: [String: String] = [:], skills: [BundledResource] = []) {
+        self.init(name: name, displayName: displayName, helper: helper, arguments: arguments, env: env, skills: skills, legacyCommands: [])
+    }
+
+    public init(name: String, displayName: String, helper: BundledResource, arguments: [String] = [], env: [String: String] = [:], skills: [BundledResource] = [], legacyCommands: [String] = []) {
         self.name = name
         self.displayName = displayName
         self.helper = helper
         self.arguments = arguments
         self.env = env
         self.skills = skills
+        self.legacyCommands = legacyCommands
     }
 }
 
