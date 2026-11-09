@@ -62,7 +62,15 @@ public struct Tool: Sendable {
     public init(
         _ name: String,
         _ description: String,
-        annotations: MCP.Tool.Annotations = nil,
+        handler: @escaping @Sendable (ToolContext) async throws -> ToolOutput
+    ) {
+        self.init(name, description, annotations: nil, handler: handler)
+    }
+
+    public init(
+        _ name: String,
+        _ description: String,
+        annotations: MCP.Tool.Annotations,
         handler: @escaping @Sendable (ToolContext) async throws -> ToolOutput
     ) {
         self.name = name
@@ -79,7 +87,16 @@ public struct Tool: Sendable {
         _ name: String,
         _ description: String,
         input: Input.Type,
-        annotations: MCP.Tool.Annotations = nil,
+        handler: @escaping @Sendable (Input) async throws -> ToolOutput
+    ) {
+        self.init(name, description, input: input, annotations: nil, handler: handler)
+    }
+
+    public init<Input: ToolInput>(
+        _ name: String,
+        _ description: String,
+        input: Input.Type,
+        annotations: MCP.Tool.Annotations,
         handler: @escaping @Sendable (Input) async throws -> ToolOutput
     ) {
         self.init(name, description, input: input, annotations: annotations) { arguments, _ in try await handler(arguments) }
@@ -89,7 +106,16 @@ public struct Tool: Sendable {
         _ name: String,
         _ description: String,
         input: Input.Type,
-        annotations: MCP.Tool.Annotations = nil,
+        handler: @escaping @Sendable (Input, ToolContext) async throws -> ToolOutput
+    ) {
+        self.init(name, description, input: input, annotations: nil, handler: handler)
+    }
+
+    public init<Input: ToolInput>(
+        _ name: String,
+        _ description: String,
+        input: Input.Type,
+        annotations: MCP.Tool.Annotations,
         handler: @escaping @Sendable (Input, ToolContext) async throws -> ToolOutput
     ) {
         self.name = name

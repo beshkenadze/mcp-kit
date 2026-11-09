@@ -49,6 +49,27 @@ func withClient(
 
 struct CallArgs: ToolInput { let frame: Int }
 
+@Test func originalToolInitializerReferencesRemainSourceCompatible() async throws {
+    typealias ContextHandler = @Sendable (ToolContext) async throws -> ToolOutput
+    typealias InputHandler = @Sendable (CallArgs) async throws -> ToolOutput
+    typealias FullHandler = @Sendable (CallArgs, ToolContext) async throws -> ToolOutput
+    let context: (String, String, @escaping ContextHandler) -> MCPKitServer.Tool = MCPKitServer.Tool.init
+    let input: (String, String, CallArgs.Type, @escaping InputHandler) -> MCPKitServer.Tool = MCPKitServer.Tool.init
+    let full: (String, String, CallArgs.Type, @escaping FullHandler) -> MCPKitServer.Tool = MCPKitServer.Tool.init
+    let server = try MCPServer(name: "api", version: "1") {
+        context("context", "Context", { _ in .text("context") })
+        input("input", "Input", CallArgs.self, { _ in .text("input") })
+        full("full", "Full", CallArgs.self, { _, _ in .text("full") })
+    }
+    try await withClient(server) { client, _ in
+        for name in ["context", "input", "full"] {
+            let result = try await client.callTool(name: name, arguments: name == "context" ? nil : ["frame": 1])
+            #expect(result.isError == false)
+            #expect(result.content == [.text(text: name, annotations: nil, _meta: nil)])
+        }
+    }
+}
+
 @Test func annotationsSurviveDiscoveryForEveryHandlerShape() async throws {
     let hints = MCP.Tool.Annotations(
         title: "Read frame", readOnlyHint: true, destructiveHint: false,
