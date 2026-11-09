@@ -40,7 +40,10 @@ public struct Tool: Sendable {
         schema = { try SchemaDecoder.input(input) }
         invoke = { params, _ in
             let data = try JSONEncoder().encode(Value.object(params.arguments ?? [:]))
-            return try await handler(JSONDecoder().decode(Input.self, from: data))
+            let arguments: Input
+            do { arguments = try JSONDecoder().decode(Input.self, from: data) }
+            catch let error as DecodingError { throw ArgumentFailure(error) }
+            return try await handler(arguments)
         }
     }
 }
@@ -80,11 +83,43 @@ public struct MCPServer: Sendable {
             guard let tool = tools.first(where: { $0.name == params.name }) else {
                 throw MCPError.invalidParams("Unknown tool: \(params.name)")
             }
-            let output = try await tool.invoke(params, ToolContext())
-            return .init(content: output.contents, isError: false)
+            do {
+                let output = try await tool.invoke(params, ToolContext())
+                return .init(content: output.contents, isError: false)
+            } catch {
+                return .init(content: ToolOutput.text(error.localizedDescription).contents, isError: true)
+            }
         }
         try await server.start(transport: transport)
     }
 
     public func stop() async { await server.stop() }
+}
+
+private struct ArgumentFailure: LocalizedError {
+    let errorDescription: String?
+
+    init(_ error: DecodingError) {
+        let path: [any CodingKey]
+        let reason: String
+        switch error {
+        case .keyNotFound(let key, let context):
+            path = context.codingPath + [key]
+            reason = "Required field is missing"
+        case .typeMismatch(let type, let context):
+            path = context.codingPath
+            reason = "Expected \(type). \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            path = context.codingPath
+            reason = "Expected \(type), received null"
+        case .dataCorrupted(let context):
+            path = context.codingPath
+            reason = context.debugDescription
+        @unknown default:
+            path = []
+            reason = error.localizedDescription
+        }
+        let field = path.map(\.stringValue).joined(separator: ".")
+        errorDescription = "Invalid arguments at \(field.isEmpty ? "<root>" : field): \(reason)"
+    }
 }

@@ -46,3 +46,36 @@ func withClient(
         #expect(result.content == [.text(text: "pong", annotations: nil, _meta: nil)])
     }
 }
+
+struct CallArgs: ToolInput { let frame: Int }
+struct HandlerFailure: LocalizedError {
+    var errorDescription: String? { "Render failed" }
+}
+
+@Test func callFailuresAreActionableAndUnknownToolsAreProtocolErrors() async throws {
+    let server = try MCPServer(name: "errors", version: "1") {
+        Tool("frame", "A frame", input: CallArgs.self) { args in .text("\(args.frame)") }
+        Tool("fail", "Throws") { _ in throw HandlerFailure() }
+    }
+    try await withClient(server) { client, _ in
+        for arguments: [String: Value] in [[:], ["frame": .string("wrong")], ["frame": .null]] {
+            let result = try await client.callTool(name: "frame", arguments: arguments)
+            #expect(result.isError == true)
+            guard case .text(let text, _, _) = result.content.first else {
+                Issue.record("Expected a text error")
+                continue
+            }
+            #expect(text.contains("frame"))
+            #expect(text.count > "frame".count)
+        }
+        let failure = try await client.callTool(name: "fail")
+        #expect(failure.isError == true)
+        #expect(failure.content == [.text(text: "Render failed", annotations: nil, _meta: nil)])
+        do {
+            _ = try await client.callTool(name: "unknown")
+            Issue.record("Expected a protocol error")
+        } catch let error as MCPError {
+            #expect(error.code == -32602)
+        }
+    }
+}
