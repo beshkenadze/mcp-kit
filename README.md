@@ -2,7 +2,7 @@
 
 Swift 6 tools for shipping a bundled stdio MCP helper and connecting it, with skills, to Claude Code, Claude Desktop, and Codex. Requires macOS 14 or later; the integration app runs without App Sandbox.
 
-Version 0.3.0 adds annotations, structured output, and strict schema validation to `MCPKitServer`, preserving the 0.2.0 public API. Agent integration in `MCPKit` is unchanged. See [CHANGELOG.md](CHANGELOG.md).
+Version 0.4.0 adds opt-in adoption of legacy agent entries through `MCPIntegration.legacyCommands`, preserving the 0.3.0 public API. See [CHANGELOG.md](CHANGELOG.md).
 
 | Product | Add to target | Purpose |
 |---|---|---|
@@ -73,7 +73,7 @@ let server = try MCPServer(name: "search", version: "1") {
 }
 ```
 
-`constraints` defaults to empty. `.range(ClosedRange<Double>)` adds `minimum`/`maximum` to integer or number fields; `.length(ClosedRange<Int>)` adds `minLength`/`maxLength` to strings; `.items(ClosedRange<Int>)` adds `minItems`/`maxItems` to arrays. String lengths count Unicode code points. Put nested constraints on the nested `ToolInput` type, including array and dictionary value types. Use `CodingKeys` names rather than Swift property names; dotted paths are not supported. Unknown keys, constraints on incompatible field types, negative size bounds, non-finite numeric bounds, and repeated constraints of the same kind throw `unsupportedInput(tool:reason:)` during server construction.
+`constraints` defaults to empty. `.range(ClosedRange<Double>)` adds `minimum`/`maximum` to integer or number fields; `.length(ClosedRange<Int>)` adds `minLength`/`maxLength` to strings; `.items(ClosedRange<Int>)` adds `minItems`/`maxItems` to arrays. Zero lower bounds omit `minLength` and `minItems`, using the JSON Schema default with the same validation behavior. String lengths count Unicode code points. Put nested constraints on the nested `ToolInput` type, including array and dictionary value types. Use `CodingKeys` names rather than Swift property names; dotted paths are not supported. Unknown keys, constraints on incompatible field types, negative size bounds, non-finite numeric bounds, and repeated constraints of the same kind throw `unsupportedInput(tool:reason:)` during server construction.
 
 The schema sent by `tools/list` is the single validation source. Before Codable decoding or invoking a handler, the server checks raw arguments against that exact stored schema: types, required fields, unknown keys, enums, and every declared bound. All recorded objects, including empty inputs, have `additionalProperties: false`. String-keyed dictionaries accept arbitrary keys and validate each value against their value schema. Explicit `null` is rejected at every input value, including optional fields and collection elements; omit an optional field instead. Omitted arguments are treated as an empty object.
 
@@ -114,7 +114,28 @@ Use `arguments:` only if your helper expects them; `ExampleHelper` starts servin
 
 Keep the bundled skill at `Skills/filmcraft/SKILL.md` (Copy Files destination Wrapper, subpath `Skills`). If you instead copy skills into the app's resources, declare `.bundled("Contents/Resources/Skills/filmcraft")`. MCPKit installs marked copies under `~/.claude/skills/filmcraft` for Claude Code and `~/.agents/skills/filmcraft` for Codex. Claude Desktop skills are managed in the cloud and are not installed locally by MCPKit.
 
-The stable helper path is `~/Library/Application Support/<bundle-id>/mcp-kit/bin/<name>`. A server entry belongs to this integration only when its command equals that path. The kit owns `command`, `args`, `env`, and `type` where the agent template includes it; updates preserve all other user fields and subtables. `connect(_:force:)` replaces a foreign entry only with `force: true`; force never takes over an unmarked or foreign skill folder. Connecting an undetected agent throws `MCPKitError.agentNotFound`. `ConnectResult.restartHint` supplies the registry's restart guidance.
+The stable helper path is `~/Library/Application Support/<bundle-id>/mcp-kit/bin/<name>`. A server entry belongs to this integration when its command equals that path or one of its declared `legacyCommands`. The kit owns `command`, `args`, `env`, and `type` where the agent template includes it; updates preserve all other user fields and subtables. `connect(_:force:)` replaces a foreign entry only with `force: true`; force never takes over an unmarked or foreign skill folder. Connecting an undetected agent throws `MCPKitError.agentNotFound`. `ConnectResult.restartHint` supplies the registry's restart guidance.
+
+### Adopt legacy entries
+
+If an earlier installer registered a direct executable path, declare the exact command paths that installer wrote:
+
+```swift
+let integration = MCPIntegration(
+    name: "filmcraft",
+    displayName: "FilmCraft",
+    helper: .bundled("Contents/Helpers/filmcraft-cli"),
+    legacyCommands: ["/Applications/FilmCraft.app/Contents/MacOS/FilmCraft"]
+)
+let kit = MCPKit(integration)
+try await kit.reconcile()
+```
+
+`legacyCommands:` defaults to `[]`. Matching compares the command string exactly, without path normalization, symlink resolution, or filename/suffix guesses. List only paths previously written by your app; a matching command grants ownership regardless of the entry's arguments or environment.
+
+`status()` reports a legacy entry as `outdated`. `connect()` adopts it without `force`, and `reconcile()` adopts it even before the stable helper link exists. Adoption replaces the owned fields and preserves user fields and TOML subtables. `disconnect()` also removes legacy entries, retaining shared resources while another owned entry remains.
+
+Ownership is checked again inside the writer's `transform` against its current input bytes. If a legacy entry becomes foreign after `status()`, `connect()` or `reconcile()` throws `MCPKitError.conflict` and preserves that entry. Apps can use the kit's registry and writer directly without maintaining agent config paths or comparing file snapshots themselves.
 
 `status()` compares only owned fields and returns `agentNotFound`, `disconnected`, `connected`, `outdated`, `conflict`, or `unavailable(reason)`. Missing installed skills and older owned markers are outdated. A conflicting skill marker is unavailable and `connect` throws `skillConflict`. `reconcile()` repoints the helper only when a link already exists or an agent has an owned entry. It attempts every outdated integration before throwing the first error; disconnected agents stay disconnected. Call it when the app launches.
 
