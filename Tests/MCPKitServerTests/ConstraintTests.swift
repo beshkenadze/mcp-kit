@@ -97,6 +97,54 @@ private struct BoundedSchedule: ToolInput {
     ]
 }
 
+private struct LargeInteger: ToolInput {
+    let value: Int
+    static let constraints: [String: [SchemaConstraint]] = [
+        "value": [.range(-9_007_199_254_740_992...9_007_199_254_740_992)]
+    ]
+}
+private struct BeyondIntMaximum: ToolInput {
+    let value: Int
+    static let constraints: [String: [SchemaConstraint]] = [
+        "value": [.range(Double(Int.max)...Double(Int.max))]
+    ]
+}
+private struct AtIntMinimum: ToolInput {
+    let value: Int
+    static let constraints: [String: [SchemaConstraint]] = [
+        "value": [.range(Double(Int.min)...Double(Int.min))]
+    ]
+}
+private struct FractionalIntegerBounds: ToolInput {
+    let value: Int
+    static let constraints: [String: [SchemaConstraint]] = ["value": [.range(-1.5...1.5)]]
+}
+
+@Test func integerBoundsDoNotLosePrecisionThroughDoubleConversion() async throws {
+    let server = try MCPServer(name: "integer-bounds", version: "1") {
+        Tool("large", "Large integer", input: LargeInteger.self) { _ in .text("accepted") }
+        Tool("beyond", "Beyond Int.max", input: BeyondIntMaximum.self) { _ in .text("accepted") }
+        Tool("minimum", "At Int.min", input: AtIntMinimum.self) { _ in .text("accepted") }
+        Tool("fractional", "Fractional bounds", input: FractionalIntegerBounds.self) { _ in .text("accepted") }
+    }
+    try await withClient(server) { client, _ in
+        for value in [-9_007_199_254_740_993, -9_007_199_254_740_992, 0, 9_007_199_254_740_992, 9_007_199_254_740_993] {
+            let result = try await client.callTool(name: "large", arguments: ["value": .int(value)])
+            #expect(result.isError == (abs(value) > 9_007_199_254_740_992))
+        }
+        let beyond = try await client.callTool(name: "beyond", arguments: ["value": .int(Int.max)])
+        #expect(beyond.isError == true)
+        for value in [Int.min, Int.min + 1] {
+            let result = try await client.callTool(name: "minimum", arguments: ["value": .int(value)])
+            #expect(result.isError == (value != Int.min))
+        }
+        for value in -2...2 {
+            let result = try await client.callTool(name: "fractional", arguments: ["value": .int(value)])
+            #expect(result.isError == (abs(value) > 1))
+        }
+    }
+}
+
 private struct BoundedConfigure: ToolInput {
     let intensity: Double?
     let target_minutes: Int?

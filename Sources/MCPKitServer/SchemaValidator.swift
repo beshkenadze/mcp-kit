@@ -55,10 +55,12 @@ enum SchemaValidator {
                   type != "integer" || number.rounded(.towardZero) == number else {
                 throw fail("Expected \(type)")
             }
-            if let minimum = fields["minimum"].flatMap({ Double($0) }), number < minimum {
+            if let minimum = fields["minimum"].flatMap({ Double($0) }),
+               compare(number, integer: value.intValue, to: minimum) == .orderedAscending {
                 throw fail("Must be at least \(minimum)")
             }
-            if let maximum = fields["maximum"].flatMap({ Double($0) }), number > maximum {
+            if let maximum = fields["maximum"].flatMap({ Double($0) }),
+               compare(number, integer: value.intValue, to: maximum) == .orderedDescending {
                 throw fail("Must be at most \(maximum)")
             }
         case "boolean":
@@ -70,5 +72,18 @@ enum SchemaValidator {
         if let allowed = fields["enum"]?.arrayValue, !allowed.contains(enumValue) {
             throw fail("Expected one of \(allowed)")
         }
+    }
+
+    private static func compare(_ number: Double, integer: Int?, to bound: Double) -> ComparisonResult {
+        if let integer {
+            if bound >= Double(Int.max) { return .orderedAscending }
+            if bound < Double(Int.min) { return .orderedDescending }
+            let floor = bound.rounded(.down)
+            let limit = Int(floor)
+            if integer < limit { return .orderedAscending }
+            if integer > limit { return .orderedDescending }
+            return bound == floor ? .orderedSame : .orderedAscending
+        }
+        return number < bound ? .orderedAscending : number > bound ? .orderedDescending : .orderedSame
     }
 }
