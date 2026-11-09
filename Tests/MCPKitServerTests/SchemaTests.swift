@@ -48,3 +48,47 @@ struct Scalars: ToolInput {
         #expect(result.content == [.text(text: "hello", annotations: nil, _meta: nil)])
     }
 }
+
+struct Details: ToolInput {
+    let title: String
+    let enabled: Bool?
+    static let descriptions = ["title": "Nested title"]
+}
+
+struct Collections: ToolInput {
+    let details: Details
+    let numbers: [Int]
+    let objects: [Details]
+    let labels: [String: String]
+    let records: [String: Details]
+}
+
+@Test func nestedObjectsArraysAndDictionaries() async throws {
+    let server = try MCPServer(name: "schemas", version: "1") {
+        Tool("collections", "Nested arguments", input: Collections.self) { args in
+            .text("\(args.objects.first?.title ?? ""):\(args.numbers.reduce(0, +)):\(args.labels["a"] ?? "")")
+        }
+    }
+    try await withClient(server) { client, _ in
+        let tool = try #require(try await client.listTools().tools.first)
+        let properties = try #require(tool.inputSchema.objectValue?["properties"]?.objectValue)
+        let details: Value = .object([
+            "type": .string("object"),
+            "properties": .object([
+                "title": .object(["type": .string("string"), "description": .string("Nested title")]),
+                "enabled": .object(["type": .string("boolean")])
+            ]), "required": .array([.string("title")])
+        ])
+        #expect(properties["details"] == details)
+        #expect(properties["objects"] == .object(["type": .string("array"), "items": details]))
+        #expect(properties["numbers"] == .object(["type": .string("array"), "items": .object(["type": .string("integer")])]))
+        #expect(properties["labels"] == .object(["type": .string("object"), "additionalProperties": .object(["type": .string("string")])]))
+        #expect(properties["records"] == .object(["type": .string("object"), "additionalProperties": details]))
+        let result = try await client.callTool(name: "collections", arguments: [
+            "details": .object(["title": .string("root")]), "numbers": .array([.int(2), .int(3)]),
+            "objects": .array([.object(["title": .string("child")])]),
+            "labels": .object(["a": .string("label")]), "records": .object([:])
+        ])
+        #expect(result.content == [.text(text: "child:5:label", annotations: nil, _meta: nil)])
+    }
+}

@@ -30,6 +30,7 @@ final class SchemaDecoder: Decoder {
     var required: Set<String> = []
     var optional: Set<String> = []
     var schema: Value?
+    var isKeyed = false
 
     static func input<T: ToolInput>(_ type: T.Type) throws -> Value {
         let decoder = SchemaDecoder()
@@ -59,6 +60,9 @@ final class SchemaDecoder: Decoder {
             schema = .object(["type": .string("string"), "format": .string("uri")])
             return URL(string: "https://example.com")! as! T
         }
+        if let collection = type as? any SchemaCollection.Type {
+            return try collection.sample(using: self) as! T
+        }
         let value = try T(from: self)
         if let descriptions = (type as? any ToolInput.Type)?.descriptions {
             for (key, description) in descriptions {
@@ -67,7 +71,7 @@ final class SchemaDecoder: Decoder {
                 properties[key] = .object(field)
             }
         }
-        if schema?.objectValue?["type"] == .string("object") { updateObject() }
+        if isKeyed { updateObject() }
         guard schema != nil else { throw SchemaFailure(reason: "No decodable shape for \(type)") }
         return value
     }
@@ -81,6 +85,7 @@ final class SchemaDecoder: Decoder {
     }
 
     func container<Key: CodingKey>(keyedBy type: Key.Type) throws -> KeyedDecodingContainer<Key> {
+        isKeyed = true
         updateObject()
         return KeyedDecodingContainer(Fields<Key>(decoder: self))
     }
@@ -139,6 +144,30 @@ final class SchemaDecoder: Decoder {
         }
         func superDecoder() throws -> any Decoder { throw SchemaFailure(reason: "Superclass decoding is unsupported") }
         func superDecoder(forKey key: Key) throws -> any Decoder { throw SchemaFailure(reason: "Superclass decoding is unsupported") }
+    }
+}
+
+private protocol SchemaCollection {
+    static func sample(using decoder: SchemaDecoder) throws -> Any
+}
+
+extension Array: SchemaCollection where Element: Decodable {
+    fileprivate static func sample(using decoder: SchemaDecoder) throws -> Any {
+        let child = SchemaDecoder()
+        child.codingPath = decoder.codingPath
+        let element = try child.sample(Element.self)
+        decoder.schema = .object(["type": .string("array"), "items": child.schema!])
+        return [element]
+    }
+}
+
+extension Dictionary: SchemaCollection where Key == String, Value: Decodable {
+    fileprivate static func sample(using decoder: SchemaDecoder) throws -> Any {
+        let child = SchemaDecoder()
+        child.codingPath = decoder.codingPath
+        let value = try child.sample(Value.self)
+        decoder.schema = .object(["type": .string("object"), "additionalProperties": child.schema!])
+        return ["key": value]
     }
 }
 
