@@ -4,7 +4,10 @@ import PackageDescription
 let package = Package(
     name: "MCPKit",
     platforms: [.macOS(.v14)],
-    products: [.library(name: "MCPKit", targets: ["MCPKit"])],
+    products: [
+        .library(name: "MCPKit", targets: ["MCPKit"]),
+        .library(name: "MCPKitServer", targets: ["MCPKitServer"])
+    ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.12.1")
     ],
@@ -12,11 +15,13 @@ let package = Package(
         .target(
             name: "MCPKit",
             path: ".",
-            exclude: ["Tests", "docs", "spec/README.md", "spec/fixtures", "README.md"],
+            exclude: ["Tests", "docs", "spec/README.md", "spec/fixtures", "README.md", "Sources/MCPKitServer"],
             sources: ["Sources/MCPKit"],
             resources: [.copy("spec/agents.json")]
         ),
-        .testTarget(name: "MCPKitTests", dependencies: ["MCPKit"])
+        .testTarget(name: "MCPKitTests", dependencies: ["MCPKit"]),
+        .target(name: "MCPKitServer", dependencies: [.product(name: "MCP", package: "swift-sdk")]),
+        .testTarget(name: "MCPKitServerTests", dependencies: ["MCPKitServer"])
     ],
     swiftLanguageModes: [.v6]
 )
