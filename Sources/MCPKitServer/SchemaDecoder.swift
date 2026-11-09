@@ -20,10 +20,12 @@ extension ToolInputEnum {
 
 public enum MCPKitServerError: Error, LocalizedError {
     case unsupportedInput(tool: String, reason: String)
+    case duplicateTool(String)
 
     public var errorDescription: String? {
         switch self {
         case .unsupportedInput(let tool, let reason): "Unsupported input for \(tool): \(reason)"
+        case .duplicateTool(let name): "Duplicate tool: \(name)"
         }
     }
 }

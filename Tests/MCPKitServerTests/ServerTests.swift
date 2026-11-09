@@ -107,3 +107,15 @@ struct JSONPayload: Encodable { let frame: Int; let label: String }
         #expect(content.content == raw)
     }
 }
+
+@Test func duplicateToolNamesAreRejected() throws {
+    do {
+        _ = try MCPServer(name: "duplicates", version: "1") {
+            Tool("ping", "First") { _ in .text("first") }
+            Tool("ping", "Second") { _ in .text("second") }
+        }
+        Issue.record("Accepted duplicate tool names")
+    } catch MCPKitServerError.duplicateTool(let name) {
+        #expect(name == "ping")
+    }
+}

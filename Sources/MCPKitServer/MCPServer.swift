@@ -101,6 +101,10 @@ public struct MCPServer: Sendable {
         @ToolBuilder tools: () -> [Tool]
     ) throws {
         let declarations = tools()
+        var names: Set<String> = []
+        for tool in declarations {
+            guard names.insert(tool.name).inserted else { throw MCPKitServerError.duplicateTool(tool.name) }
+        }
         self.tools = declarations
         definitions = try declarations.map { tool in
             do { return MCP.Tool(name: tool.name, description: tool.description, inputSchema: try tool.schema()) }
