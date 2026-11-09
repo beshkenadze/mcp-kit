@@ -66,7 +66,8 @@ enum SchemaValidator {
         default:
             throw fail("Unsupported schema type '\(type)'")
         }
-        if let allowed = fields["enum"]?.arrayValue, !allowed.contains(value) {
+        let enumValue: Value = if case .data = value { .string(value.description) } else { value }
+        if let allowed = fields["enum"]?.arrayValue, !allowed.contains(enumValue) {
             throw fail("Expected one of \(allowed)")
         }
     }

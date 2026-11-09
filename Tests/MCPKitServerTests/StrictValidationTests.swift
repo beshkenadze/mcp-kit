@@ -14,6 +14,30 @@ private struct Configure: ToolInput {
     let enabled: Bool?
 }
 
+private enum DataURL: String, ToolInputEnum { case text = "data:text/plain;base64,aGk=" }
+private struct StringArguments: ToolInput {
+    let text: String
+    let choice: DataURL
+    let labels: [String: String]
+    static let constraints: [String: [SchemaConstraint]] = ["text": [.length(27...27)]]
+}
+
+@Test func sdkDataURLValuesAreValidatedAsJSONStrings() async throws {
+    let url = DataURL.text.rawValue
+    let server = try MCPServer(name: "strings", version: "1") {
+        Tool("strings", "Strings", input: StringArguments.self) { args in
+            .text("\(args.text)|\(args.choice.rawValue)|\(args.labels["custom"] ?? "")")
+        }
+    }
+    try await withClient(server) { client, _ in
+        let result = try await client.callTool(name: "strings", arguments: [
+            "text": .string(url), "choice": .string(url), "labels": ["custom": .string(url)]
+        ])
+        #expect(result.isError == false)
+        #expect(result.content == [.text(text: "\(url)|\(url)|\(url)", annotations: nil, _meta: nil)])
+    }
+}
+
 @Test func rawArgumentsAreValidatedRecursivelyBeforeDecoding() async throws {
     let server = try MCPServer(name: "strict", version: "1") {
         Tool("configure", "Configure", input: Configure.self) { _ in .text("accepted") }
