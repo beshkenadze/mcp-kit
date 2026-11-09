@@ -41,6 +41,7 @@ final class SchemaDecoder: Decoder {
     var optional: Set<String> = []
     var schema: Value?
     var isKeyed = false
+    var ancestors: [ObjectIdentifier] = []
 
     static func input<T: ToolInput>(_ type: T.Type) throws -> Value {
         let decoder = SchemaDecoder()
@@ -52,6 +53,10 @@ final class SchemaDecoder: Decoder {
     }
 
     func sample<T: Decodable>(_ type: T.Type) throws -> T {
+        let identifier = ObjectIdentifier(type)
+        guard !ancestors.contains(identifier) else { throw SchemaFailure(reason: "Recursive input: \(type)") }
+        ancestors.append(identifier)
+        defer { ancestors.removeLast() }
         if type == String.self { schema = .object(["type": .string("string")]); return String("") as! T }
         if type == Bool.self { schema = .object(["type": .string("boolean")]); return Bool(false) as! T }
         if type == Int.self { schema = .object(["type": .string("integer")]); return Int(0) as! T }
@@ -128,6 +133,7 @@ final class SchemaDecoder: Decoder {
 
         func decode<T: Decodable>(_ type: T.Type, forKey key: Key) throws -> T {
             let child = SchemaDecoder()
+            child.ancestors = decoder.ancestors
             child.codingPath = codingPath + [key]
             let value = try child.sample(type)
             decoder.properties[key.stringValue] = child.schema
@@ -172,6 +178,7 @@ private protocol SchemaCollection {
 extension Array: SchemaCollection where Element: Decodable {
     fileprivate static func sample(using decoder: SchemaDecoder) throws -> Any {
         let child = SchemaDecoder()
+        child.ancestors = decoder.ancestors
         child.codingPath = decoder.codingPath
         let element = try child.sample(Element.self)
         decoder.schema = .object(["type": .string("array"), "items": child.schema!])
@@ -182,6 +189,7 @@ extension Array: SchemaCollection where Element: Decodable {
 extension Dictionary: SchemaCollection where Key == String, Value: Decodable {
     fileprivate static func sample(using decoder: SchemaDecoder) throws -> Any {
         let child = SchemaDecoder()
+        child.ancestors = decoder.ancestors
         child.codingPath = decoder.codingPath
         let value = try child.sample(Value.self)
         decoder.schema = .object(["type": .string("object"), "additionalProperties": child.schema!])

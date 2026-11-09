@@ -122,3 +122,54 @@ struct EmptyArgs: ToolInput {}
         #expect(empty.content == [.text(text: "empty", annotations: nil, _meta: nil)])
     }
 }
+
+struct DateArgs: ToolInput { let date: Date }
+struct DataArgs: ToolInput { let data: Data }
+struct DecimalArgs: ToolInput { let decimal: Decimal }
+struct SetArgs: ToolInput { let set: Set<String> }
+struct ScalarRoot: ToolInput {
+    init(from decoder: any Decoder) throws { _ = try decoder.singleValueContainer().decode(String.self) }
+}
+final class RecursiveArgs: ToolInput { let children: [RecursiveArgs] }
+
+@Test func unsupportedInputsFailDuringConstruction() throws {
+    func rejects<T: ToolInput>(_ type: T.Type) {
+        do {
+            _ = try MCPServer(name: "bad", version: "1") {
+                Tool("unsupported", "Must fail", input: type) { _ in .text("never") }
+            }
+            Issue.record("Accepted unsupported input \(type)")
+        } catch MCPKitServerError.unsupportedInput(let tool, let reason) {
+            #expect(tool == "unsupported")
+            #expect(!reason.isEmpty)
+        } catch { Issue.record("Unexpected error: \(error)") }
+    }
+    rejects(DateArgs.self)
+    rejects(DataArgs.self)
+    rejects(DecimalArgs.self)
+    rejects(SetArgs.self)
+    rejects(ScalarRoot.self)
+}
+
+struct BoundedRecursive: ToolInput {
+    init(from decoder: any Decoder) throws {
+        guard decoder.codingPath.count < 8 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Probe depth limit"))
+        }
+        let container = try decoder.container(keyedBy: Keys.self)
+        _ = try container.decode([BoundedRecursive].self, forKey: .children)
+    }
+    enum Keys: String, CodingKey { case children }
+}
+
+@Test func recursiveInputIsRejectedWithADiagnostic() {
+    do {
+        _ = try MCPServer(name: "bad", version: "1") {
+            Tool("recursive", "Recursive", input: BoundedRecursive.self) { _ in .text("never") }
+        }
+        Issue.record("Accepted recursive input")
+    } catch MCPKitServerError.unsupportedInput(let tool, let reason) {
+        #expect(tool == "recursive")
+        #expect(reason.contains("Recursive input"))
+    } catch { Issue.record("Unexpected error: \(error)") }
+}
