@@ -37,11 +37,10 @@ public actor MCPKit {
         guard definition.isDetected(in: environment) else { throw MCPKitError.agentNotFound(agent) }
         let url = environment.expand(definition.config.path)
         do {
-            try updateHelperLink()
             let desired = try desiredEntry()
             let commands = try ownedCommands()
             let name = integration.name
-            try writer.update(url, transform: { data in
+            let transform: @Sendable (Data?) throws -> Data = { data in
                 do {
                     let existing = try ConfigReader.entry(in: data, definition: definition, name: name)
                     if let existing, !commands.contains(existing.command), !force {
@@ -51,7 +50,14 @@ public actor MCPKit {
                 } catch let error as MCPKitError { throw error }
                 catch TOMLError.unsupportedLayout { throw MCPKitError.unsupportedLayout(agent, url) }
                 catch { throw MCPKitError.unreadableConfig(agent, url, underlying: error) }
-            }, verify: { data in
+            }
+            let original: Data?
+            do { original = try ConfigReader.data(at: url) }
+            catch { throw ConfigReadError(underlying: error) }
+            _ = try transform(original)
+            if let directory = skillDirectory(definition) { try skillInstaller().validate(in: directory) }
+            try updateHelperLink()
+            try writer.update(url, transform: transform, verify: { data in
                 try ConfigReader.entry(in: data, definition: definition, name: name) == desired
             })
             if let directory = skillDirectory(definition) { try skillInstaller().install(in: directory) }

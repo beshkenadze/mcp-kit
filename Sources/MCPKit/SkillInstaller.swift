@@ -9,6 +9,17 @@ struct SkillInstaller {
     let sources: [URL]
     let marker: Marker
 
+    func validate(in directory: URL) throws {
+        let fm = FileManager.default
+        for source in sources {
+            guard fm.fileExists(atPath: source.appendingPathComponent("SKILL.md").path) else { throw CocoaError(.fileReadNoSuchFile) }
+            let destination = directory.appendingPathComponent(source.lastPathComponent)
+            if fm.fileExists(atPath: destination.path) || (try? fm.destinationOfSymbolicLink(atPath: destination.path)) != nil {
+                _ = try ownedMarker(at: destination)
+            }
+        }
+    }
+
     func isOutdated(in directory: URL) throws -> Bool {
         var outdated = false
         for source in sources {
@@ -24,6 +35,7 @@ struct SkillInstaller {
     }
 
     func install(in directory: URL) throws {
+        try validate(in: directory)
         let fm = FileManager.default
         var installed: Set<URL> = []
         for source in sources {
