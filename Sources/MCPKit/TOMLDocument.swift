@@ -66,8 +66,7 @@ struct TOMLDocument {
         var edits: [(range: Range<Int>, text: String)] = []
         if let entry {
             let hasEnv = sections.contains { $0.table == envPath }
-            var fields = [(keys.commandKey, Self.quote(entry.command)), (keys.argsKey, "[\(entry.args.map(Self.quote).joined(separator: ", "))]")]
-            if let key = keys.typeKey, let type = keys.type { fields.append((key, Self.quote(type))) }
+            let fields = renderedFields(entry, keys: keys)
             if let main = sections.first(where: { $0.table == path }) {
                 var insertion = ""
                 for (key, value) in fields {
@@ -139,12 +138,18 @@ struct TOMLDocument {
     private func render(_ entry: ServerEntry, definition: AgentDefinition, path: [String]) -> String {
         let table = path.map(Self.key).joined(separator: ".")
         let keys = definition.entry
-        var text = "[\(table)]\n\(Self.key(keys.commandKey)) = \(Self.quote(entry.command))\n"
-        text += "\(Self.key(keys.argsKey)) = [\(entry.args.map(Self.quote).joined(separator: ", "))]\n"
+        var text = "[\(table)]\n"
+        for (key, value) in renderedFields(entry, keys: keys) { text += "\(Self.key(key)) = \(value)\n" }
         if !entry.env.isEmpty {
             text += "\n" + renderEnvironment(entry.env, path: path + [keys.envKey])
         }
         return text
+    }
+
+    private func renderedFields(_ entry: ServerEntry, keys: AgentDefinition.Entry) -> [(String, String)] {
+        var fields = [(keys.commandKey, Self.quote(entry.command)), (keys.argsKey, "[\(entry.args.map(Self.quote).joined(separator: ", "))]")]
+        if let key = keys.typeKey, let type = keys.type { fields.append((key, Self.quote(type))) }
+        return fields
     }
 
     private func renderEnvironment(_ env: [String: String], path: [String]) -> String {

@@ -73,3 +73,16 @@ func malformedTOMLPreservesTheOriginal(text: String) async throws {
     #expect(output.hasPrefix(prefix))
     #expect(output.contains("[mcp_servers.\"film.craft\"]"))
 }
+
+@Test(arguments: ["", "[mcp_servers.filmcraft]\ncommand = '/old'\n", "[mcp_servers.filmcraft.env]\nMODE = 'old'\n"])
+func tomlRendersTheSameManagedFieldsForEveryLayout(original: String) throws {
+    let base = try #require(AgentRegistry.load()[.codex])
+    let definition = AgentDefinition(
+        displayName: base.displayName, detect: base.detect, config: base.config,
+        entry: .init(commandKey: "command", argsKey: "args", envKey: "env", typeKey: "type", type: "stdio"),
+        skillsDir: base.skillsDir, restartHint: base.restartHint
+    )
+    let desired = ServerEntry(command: "/helper", args: ["mcp"], env: ["MODE": "test"], type: "stdio")
+    let output = try TOMLDocument(Data(original.utf8)).updating(definition: definition, name: "filmcraft", entry: desired)
+    #expect(try TOMLDocument(output).entry(definition: definition, name: "filmcraft") == desired)
+}
