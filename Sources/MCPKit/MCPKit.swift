@@ -184,7 +184,7 @@ public actor MCPKit {
     }
 
     private func ownedCommands() throws -> [String] {
-        [try helperLink().path] + integration.legacyCommands
+        [try helperLink().path] + integration.legacyCommands.filter { !$0.isEmpty }
     }
 
     func updateHelperLink() throws {

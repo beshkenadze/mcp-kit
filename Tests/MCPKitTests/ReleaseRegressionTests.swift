@@ -200,3 +200,24 @@ func changedSkillWithSameVersionIsOutdated(change: String) async throws {
         #expect(try Data(contentsOf: installed.appendingPathComponent(file)) == Data(contentsOf: source.appendingPathComponent(file)))
     }
 }
+
+@Test(arguments: AgentID.allCases)
+func emptyLegacyCommandDoesNotOwnURLServers(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    let original = agent == .codex ? "[mcp_servers.filmcraft]\nurl = 'https://x'\n" : #"{"mcpServers":{"filmcraft":{"type":"http","url":"https://x"}}}"#
+    try box.write(original, to: config)
+    let base = box.integration
+    let integration = MCPIntegration(name: base.name, displayName: base.displayName, helper: base.helper,
+                                     arguments: base.arguments, env: base.env, legacyCommands: [""])
+    let kit = MCPKit(integration, environment: .init(home: box.home, bundleURL: box.bundle, applicationInstalled: { _ in true }))
+    #expect(await kit.status()[agent] == .conflict)
+    do { try await kit.connect(agent); Issue.record("Expected conflict") }
+    catch MCPKitError.conflict { }
+    try await kit.disconnect(agent)
+    try await kit.reconcile()
+    #expect(try Data(contentsOf: config) == Data(original.utf8))
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) == nil)
+    #expect(!FileManager.default.fileExists(atPath: config.path + ".mcp-kit.bak"))
+}
