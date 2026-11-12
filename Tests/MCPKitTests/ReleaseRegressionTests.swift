@@ -86,3 +86,42 @@ func preflightFailuresLeaveNoNewResources(agent: AgentID, failure: String) async
     #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) == nil)
     #expect(try Data(contentsOf: config) == Data(original.utf8))
 }
+
+@Test(arguments: AgentID.allCases)
+func forceReplacesForeignEntryCompletely(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    let original = agent == .codex ? """
+    model = 'keep'
+    [mcp_servers.other]
+    command = '/other'
+    [mcp_servers.filmcraft]
+    type = 'http'
+    url = 'https://x'
+    disabled = true
+    [mcp_servers.filmcraft.headers]
+    A = 'b'
+    [mcp_servers.filmcraft.tools.search]
+    approval_mode = 'prompt'
+
+    """ : #"{"model":"keep","mcpServers":{"other":{"command":"/other"},"filmcraft":{"type":"http","url":"https://x","headers":{"A":"b"},"disabled":true}}}"#
+    try box.write(original, to: config)
+    let kit = box.kit(desktopInstalled: true)
+    try await kit.connect(agent, force: true)
+    #expect(await kit.status()[agent] == .connected)
+    let data = try Data(contentsOf: config)
+    if agent == .codex {
+        let text = String(decoding: data, as: UTF8.self)
+        for field in ["type =", "url =", "disabled =", ".headers]", ".tools.search]"] { #expect(!text.contains(field)) }
+        #expect(text.contains("model = 'keep'"))
+        #expect(text.contains("command = '/other'"))
+    } else {
+        let root = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let servers = try #require(root["mcpServers"] as? [String: [String: Any]])
+        let entry = try #require(servers["filmcraft"])
+        #expect(Set(entry.keys) == Set(agent == .claudeCode ? ["type", "command", "args", "env"] : ["command", "args", "env"]))
+        #expect(root["model"] as? String == "keep")
+        #expect(servers["other"]?["command"] as? String == "/other")
+    }
+}

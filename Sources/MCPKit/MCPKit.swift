@@ -46,7 +46,11 @@ public actor MCPKit {
                     if let existing, !commands.contains(existing.command), !force {
                         throw MCPKitError.conflict(agent, existingCommand: existing.command)
                     }
-                    return try ConfigReader.updating(data, definition: definition, name: name, entry: desired)
+                    let base: Data?
+                    if let existing, !commands.contains(existing.command) {
+                        base = try ConfigReader.updating(data, definition: definition, name: name, entry: nil)
+                    } else { base = data }
+                    return try ConfigReader.updating(base, definition: definition, name: name, entry: desired)
                 } catch let error as MCPKitError { throw error }
                 catch TOMLError.unsupportedLayout { throw MCPKitError.unsupportedLayout(agent, url) }
                 catch { throw MCPKitError.unreadableConfig(agent, url, underlying: error) }
