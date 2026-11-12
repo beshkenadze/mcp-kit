@@ -221,3 +221,23 @@ func emptyLegacyCommandDoesNotOwnURLServers(agent: AgentID) async throws {
     #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) == nil)
     #expect(!FileManager.default.fileExists(atPath: config.path + ".mcp-kit.bak"))
 }
+
+private struct VanishingWriter: ConfigWriter {
+    func update(_ url: URL, transform: @Sendable (Data?) throws -> Data, verify: @Sendable (Data?) throws -> Bool) throws {
+        try FileManager.default.removeItem(at: url)
+        try FileWriter().update(url, transform: transform, verify: verify)
+    }
+}
+
+@Test(arguments: AgentID.allCases)
+func disconnectDoesNotCreateEmptyConfig(agent: AgentID) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    try box.write(agent == .codex ? "# initial\n" : "{}", to: config)
+    try await box.kit(desktopInstalled: true).connect(agent)
+    let racing = MCPKit(box.integration, environment: .init(home: box.home, bundleURL: box.bundle), writer: VanishingWriter())
+    try await racing.disconnect(agent)
+    #expect(!FileManager.default.fileExists(atPath: config.path))
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) == nil)
+}

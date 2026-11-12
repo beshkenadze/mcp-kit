@@ -23,7 +23,7 @@ public struct FileWriter: ConfigWriter {
             do { original = try ConfigReader.data(at: url) }
             catch { throw ConfigReadError(underlying: error) }
             let output = try transform(original)
-            if output == original, (try? verify(original)) == true { return }
+            if output == original || (original == nil && output.isEmpty), (try? verify(original)) == true { return }
             try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let permissions = original == nil ? 0o600 : (try fm.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int ?? 0o600)
             if let original {
