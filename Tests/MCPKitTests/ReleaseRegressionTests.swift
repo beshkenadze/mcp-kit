@@ -170,3 +170,33 @@ func connectOnCorrectEntryDoesNotRewriteFile(agent: AgentID, existingBackup: Boo
     let entry = try #require((root["mcpServers"] as? [String: [String: Any]])?["filmcraft"])
     #expect(entry["type"] as? String == "stdio")
 }
+
+@Test(arguments: ["SKILL.md", "references/guide.md", "references/new.md", "empty directory", "installed content", "old marker", "older version"])
+func changedSkillWithSameVersionIsOutdated(change: String) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    try box.prepareSkills()
+    let kit = MCPKit(box.skilledIntegration, environment: .init(home: box.home, bundleURL: box.bundle))
+    try await kit.connect(.claudeCode)
+    let source = box.bundle.appendingPathComponent("Skills/filmcraft")
+    let installed = box.home.appendingPathComponent(".claude/skills/filmcraft")
+    switch change {
+    case "empty directory": try FileManager.default.createDirectory(at: source.appendingPathComponent("empty"), withIntermediateDirectories: true)
+    case "installed content": try box.write("tampered", to: installed.appendingPathComponent("references/guide.md"))
+    case "older version":
+        let marker = installed.appendingPathComponent(".mcp-kit.json")
+        var fields = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: marker)) as? [String: String])
+        fields["version"] = "0.9"
+        try JSONSerialization.data(withJSONObject: fields).write(to: marker)
+    case "old marker": try box.write(#"{"bundleID":"app.filmcraft","version":"1.0"}"#, to: installed.appendingPathComponent(".mcp-kit.json"))
+    default: try box.write("changed", to: source.appendingPathComponent(change))
+    }
+    #expect(await kit.status()[.claudeCode] == .outdated)
+    try await kit.reconcile()
+    #expect(await kit.status()[.claudeCode] == .connected)
+    if change == "empty directory" { #expect(FileManager.default.fileExists(atPath: installed.appendingPathComponent("empty").path)) }
+    else if change != "old marker" && change != "older version" {
+        let file = change == "installed content" ? "references/guide.md" : change
+        #expect(try Data(contentsOf: installed.appendingPathComponent(file)) == Data(contentsOf: source.appendingPathComponent(file)))
+    }
+}

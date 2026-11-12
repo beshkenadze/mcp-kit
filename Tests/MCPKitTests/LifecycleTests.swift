@@ -24,7 +24,9 @@ extension Sandbox {
     #expect(try String(contentsOf: skill.appendingPathComponent("references/guide.md"), encoding: .utf8) == "supporting file")
     let marker = skill.appendingPathComponent(".mcp-kit.json")
     let fields = try JSONSerialization.jsonObject(with: Data(contentsOf: marker)) as? [String: String]
-    #expect(fields == ["bundleID": "app.filmcraft", "version": "1.0"])
+    #expect(fields?["bundleID"] == "app.filmcraft")
+    #expect(fields?["version"] == "1.0")
+    #expect(fields?["digest"]?.count == 64)
     try box.write("{\"bundleID\":\"app.filmcraft\",\"version\":\"0.9\"}", to: marker)
     #expect(await kit.status()[.claudeCode] == .outdated)
     try await kit.reconcile()
