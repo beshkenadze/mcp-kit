@@ -35,6 +35,10 @@ struct AgentDefinition: Decodable, Sendable {
 
 enum AgentRegistry {
     static func load() throws -> [AgentID: AgentDefinition] {
+        try registry.get()
+    }
+
+    private static let registry: Result<[AgentID: AgentDefinition], any Error> = Result {
         let url = Bundle.module.url(forResource: "agents", withExtension: "json")!
         let decoded = try JSONDecoder().decode([String: AgentDefinition].self, from: Data(contentsOf: url))
         return Dictionary(uniqueKeysWithValues: try decoded.map { key, value in

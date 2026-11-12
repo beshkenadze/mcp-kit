@@ -241,3 +241,58 @@ func disconnectDoesNotCreateEmptyConfig(agent: AgentID) async throws {
     #expect(!FileManager.default.fileExists(atPath: config.path))
     #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: helperLink(box).path)) == nil)
 }
+
+private struct ChangingBundleWriter: ConfigWriter {
+    let bundle: URL
+
+    func update(_ url: URL, transform: @Sendable (Data?) throws -> Data, verify: @Sendable (Data?) throws -> Bool) throws {
+        let info = ["CFBundleIdentifier": "app.changed", "CFBundleShortVersionString": "2.0"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: bundle.appendingPathComponent("Contents/Info.plist"))
+        try FileWriter().update(url, transform: transform, verify: verify)
+    }
+}
+
+@Test func connectionUsesOneBundleMetadataSnapshot() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    try box.prepareSkills()
+    let kit = MCPKit(box.skilledIntegration, environment: .init(home: box.home, bundleURL: box.bundle), writer: ChangingBundleWriter(bundle: box.bundle))
+    try await kit.connect(.claudeCode)
+    let marker = box.home.appendingPathComponent(".claude/skills/filmcraft/.mcp-kit.json")
+    let fields = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: marker)) as? [String: String])
+    #expect(fields["bundleID"] == "app.filmcraft")
+    #expect(fields["version"] == "1.0")
+    #expect(await kit.status()[.claudeCode] == .conflict)
+}
+
+@Test(arguments: ["reconcile", "disconnectAll"])
+func batchOperationsUseOneBundleMetadataSnapshot(operation: String) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    try box.prepareSkills()
+    try FileManager.default.createDirectory(at: box.home.appendingPathComponent(".codex"), withIntermediateDirectories: true)
+    let environment = MCPEnvironment(home: box.home, bundleURL: box.bundle)
+    let original = MCPKit(box.skilledIntegration, environment: environment)
+    for agent: AgentID in [.claudeCode, .codex] { try await original.connect(agent) }
+    if operation == "reconcile" {
+        for agent: AgentID in [.claudeCode, .codex] {
+            let config = try configuration(box, agent: agent)
+            let definition = try #require(AgentRegistry.load()[agent])
+            let outdated = ServerEntry(command: helperLink(box).path, args: ["old"], env: [:], type: definition.entry.type)
+            try ConfigReader.updating(Data(contentsOf: config), definition: definition, name: "filmcraft", entry: outdated).write(to: config)
+        }
+    }
+    let kit = MCPKit(box.skilledIntegration, environment: environment, writer: ChangingBundleWriter(bundle: box.bundle))
+    if operation == "reconcile" { try await kit.reconcile() }
+    else { try await kit.disconnectAll() }
+    for agent: AgentID in [.claudeCode, .codex] {
+        let config = try configuration(box, agent: agent)
+        let definition = try #require(AgentRegistry.load()[agent])
+        let entry = try ConfigReader.entry(in: Data(contentsOf: config), definition: definition, name: "filmcraft")
+        if operation == "reconcile" {
+            #expect(entry?.command == helperLink(box).path)
+            #expect(entry?.args == box.integration.arguments)
+        } else { #expect(entry == nil) }
+    }
+}

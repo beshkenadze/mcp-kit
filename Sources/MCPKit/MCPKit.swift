@@ -15,30 +15,42 @@ public actor MCPKit {
 
     public func status() -> [AgentID: AgentStatus] {
         do {
-            return try AgentRegistry.load().mapValues { definition in
-                guard definition.isDetected(in: environment) else { return .agentNotFound }
-                do {
-                    let url = environment.expand(definition.config.path)
-                    guard let entry = try ConfigReader.entry(in: ConfigReader.data(at: url), definition: definition, name: integration.name) else { return .disconnected }
-                    guard try ownedCommands().contains(entry.command) else { return .conflict }
-                    guard entry == (try desiredEntry(definition)) else { return .outdated }
-                    if let directory = skillDirectory(definition), try skillInstaller().isOutdated(in: directory) { return .outdated }
-                    return .connected
-                } catch { return .unavailable(error.localizedDescription) }
-            }
+            return status(registry: try AgentRegistry.load(), resources: Result { try resolveResources() })
         } catch {
             return Dictionary(uniqueKeysWithValues: AgentID.allCases.map { ($0, .unavailable(error.localizedDescription)) })
+        }
+    }
+
+    private func status(registry: [AgentID: AgentDefinition], resources: Result<Resources, any Error>) -> [AgentID: AgentStatus] {
+        registry.mapValues { definition in
+            guard definition.isDetected(in: environment) else { return .agentNotFound }
+            do {
+                let url = environment.expand(definition.config.path)
+                guard let entry = try ConfigReader.entry(in: ConfigReader.data(at: url), definition: definition, name: integration.name) else { return .disconnected }
+                let resources = try resources.get()
+                guard resources.commands.contains(entry.command) else { return .conflict }
+                guard entry == desiredEntry(resources, definition: definition) else { return .outdated }
+                if let directory = skillDirectory(definition), try skillInstaller(resources).isOutdated(in: directory) { return .outdated }
+                return .connected
+            } catch { return .unavailable(error.localizedDescription) }
         }
     }
 
     @discardableResult
     public func connect(_ agent: AgentID, force: Bool = false) throws -> ConnectResult {
         let definition = try AgentRegistry.load()[agent]!
+        return try connect(agent, definition: definition, resources: Result { try resolveResources() }, force: force)
+    }
+
+    private func connect(_ agent: AgentID, definition: AgentDefinition, resources: Result<Resources, any Error>, force: Bool = false) throws -> ConnectResult {
         guard definition.isDetected(in: environment) else { throw MCPKitError.agentNotFound(agent) }
         let url = environment.expand(definition.config.path)
         do {
-            let desired = try desiredEntry(definition)
-            let commands = try ownedCommands()
+            let resources = try resources.get()
+            let desired = desiredEntry(resources, definition: definition)
+            let commands = resources.commands
+            let directory = skillDirectory(definition)
+            let installer = try directory.map { _ in try skillInstaller(resources) }
             let name = integration.name
             let transform: @Sendable (Data?) throws -> Data = { data in
                 do {
@@ -60,12 +72,12 @@ public actor MCPKit {
             do { original = try ConfigReader.data(at: url) }
             catch { throw ConfigReadError(underlying: error) }
             _ = try transform(original)
-            if let directory = skillDirectory(definition) { try skillInstaller().validate(in: directory) }
-            try updateHelperLink()
+            if let directory, let installer { try installer.validate(in: directory) }
+            try updateHelperLink(resources)
             try writer.update(url, transform: transform, verify: { data in
                 try ConfigReader.entry(in: data, definition: definition, name: name) == desired
             })
-            if let directory = skillDirectory(definition) { try skillInstaller().install(in: directory) }
+            if let directory, let installer { try installer.install(in: directory) }
             logger.info("Connected \(agent.rawValue, privacy: .public)")
             return ConnectResult(restartHint: definition.restartHint)
         } catch let error as MCPKitError { throw error }
@@ -76,11 +88,16 @@ public actor MCPKit {
 
     public func disconnect(_ agent: AgentID) throws {
         let registry = try AgentRegistry.load()
+        try disconnect(agent, registry: registry, resources: Result { try resolveResources() })
+    }
+
+    private func disconnect(_ agent: AgentID, registry: [AgentID: AgentDefinition], resources: Result<Resources, any Error>) throws {
         let definition = registry[agent]!
         let url = environment.expand(definition.config.path)
         do {
-            let command = try helperLink().path
-            let commands = try ownedCommands()
+            let resources = try resources.get()
+            let command = resources.link.path
+            let commands = resources.commands
             let name = integration.name
             if let entry = try readEntry(agent, definition: definition), commands.contains(entry.command) {
                 try writer.update(url, transform: { data in
@@ -106,7 +123,7 @@ public actor MCPKit {
                 }
             }
             if let directory = skillDirectory(definition), !remaining.contains(where: { skillDirectory($0) == directory }) {
-                try skillInstaller().removeOwned(in: directory)
+                try skillInstaller(resources).removeOwned(in: directory)
             }
             if remaining.isEmpty, (try? FileManager.default.destinationOfSymbolicLink(atPath: command)) != nil {
                 try FileManager.default.removeItem(atPath: command)
@@ -119,28 +136,32 @@ public actor MCPKit {
     }
 
     public func disconnectAll() throws {
+        let registry = try AgentRegistry.load()
+        let resources = Result { try resolveResources() }
         var firstError: (any Error)?
         for agent in AgentID.allCases {
-            do { try disconnect(agent) }
+            do { try disconnect(agent, registry: registry, resources: resources) }
             catch { if firstError == nil { firstError = error } }
         }
         if let firstError { throw firstError }
     }
 
     public func reconcile() throws {
-        let link = try helperLink()
+        let registry = try AgentRegistry.load()
+        let resources = try resolveResources()
+        let link = resources.link
         let linkExists = (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil
-        let commands = try ownedCommands()
-        let hasOwnedEntry = try AgentRegistry.load().contains { agent, definition in
+        let commands = resources.commands
+        let hasOwnedEntry = registry.contains { agent, definition in
             guard let entry = try? readEntry(agent, definition: definition) else { return false }
             return commands.contains(entry.command)
         }
         guard linkExists || hasOwnedEntry else { return }
-        try updateHelperLink()
-        let statuses = status()
+        try updateHelperLink(resources)
+        let statuses = status(registry: registry, resources: .success(resources))
         var firstError: (any Error)?
         for agent in AgentID.allCases where statuses[agent] == .outdated {
-            do { try connect(agent) }
+            do { _ = try connect(agent, definition: registry[agent]!, resources: .success(resources)) }
             catch { if firstError == nil { firstError = error } }
         }
         if let firstError { throw firstError }
@@ -157,40 +178,41 @@ public actor MCPKit {
         definition.skillsDir.map { environment.expand($0).resolvingSymlinksInPath() }
     }
 
-    private func skillInstaller() throws -> SkillInstaller {
-        let info = try bundleInfo()
-        guard let bundleID = info["CFBundleIdentifier"] as? String,
-              let version = info["CFBundleShortVersionString"] as? String else { throw CocoaError(.fileReadCorruptFile) }
-        return SkillInstaller(sources: integration.skills.map { $0.resolve(in: environment.bundleURL) }, marker: .init(bundleID: bundleID, version: version))
+    private func skillInstaller(_ resources: Resources) throws -> SkillInstaller {
+        guard let version = resources.version else { throw CocoaError(.fileReadCorruptFile) }
+        return SkillInstaller(sources: integration.skills.map { $0.resolve(in: environment.bundleURL) }, marker: .init(bundleID: resources.bundleID, version: version))
     }
 
-    func bundleInfo() throws -> [String: Any] {
+    private struct Resources {
+        let bundleID: String
+        let version: String?
+        let helper: URL
+        let link: URL
+        let commands: [String]
+    }
+
+    private func resolveResources() throws -> Resources {
         let data = try Data(contentsOf: environment.bundleURL.appendingPathComponent("Contents/Info.plist"))
         guard let info = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { throw CocoaError(.fileReadCorruptFile) }
-        return info
-    }
-
-    func helperLink() throws -> URL {
-        guard let bundleID = try bundleInfo()["CFBundleIdentifier"] as? String,
+        guard let bundleID = info["CFBundleIdentifier"] as? String,
               !bundleID.isEmpty, !bundleID.contains("/"),
               !integration.name.isEmpty, ![".", ".."].contains(integration.name), !integration.name.contains("/") else {
             throw CocoaError(.fileWriteInvalidFileName)
         }
-        return environment.home.appendingPathComponent("Library/Application Support/\(bundleID)/mcp-kit/bin/\(integration.name)")
+        let link = environment.home.appendingPathComponent("Library/Application Support/\(bundleID)/mcp-kit/bin/\(integration.name)")
+        return Resources(bundleID: bundleID, version: info["CFBundleShortVersionString"] as? String,
+                         helper: integration.helper.resolve(in: environment.bundleURL), link: link,
+                         commands: [link.path] + integration.legacyCommands.filter { !$0.isEmpty })
     }
 
-    func desiredEntry(_ definition: AgentDefinition) throws -> ServerEntry {
-        ServerEntry(command: try helperLink().path, args: integration.arguments, env: integration.env, type: definition.entry.type)
+    private func desiredEntry(_ resources: Resources, definition: AgentDefinition) -> ServerEntry {
+        ServerEntry(command: resources.link.path, args: integration.arguments, env: integration.env, type: definition.entry.type)
     }
 
-    private func ownedCommands() throws -> [String] {
-        [try helperLink().path] + integration.legacyCommands.filter { !$0.isEmpty }
-    }
-
-    func updateHelperLink() throws {
-        let helper = integration.helper.resolve(in: environment.bundleURL)
+    private func updateHelperLink(_ resources: Resources) throws {
+        let helper = resources.helper
         guard FileManager.default.isExecutableFile(atPath: helper.path) else { throw MCPKitError.helperMissing(helper) }
-        let link = try helperLink()
+        let link = resources.link
         let fm = FileManager.default
         if (try? fm.destinationOfSymbolicLink(atPath: link.path)) == helper.path { return }
         if fm.fileExists(atPath: link.path), (try? fm.destinationOfSymbolicLink(atPath: link.path)) == nil { throw CocoaError(.fileWriteFileExists) }
