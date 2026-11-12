@@ -4,6 +4,7 @@ struct ServerEntry: Equatable, Sendable {
     let command: String
     let args: [String]
     let env: [String: String]
+    let type: String?
 }
 
 enum ConfigReader {
@@ -23,7 +24,7 @@ enum ConfigReader {
               object[keys.envKey] == nil || object[keys.envKey] is [String: String] else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        return ServerEntry(command: command, args: object[keys.argsKey] as? [String] ?? [], env: object[keys.envKey] as? [String: String] ?? [:])
+        return ServerEntry(command: command, args: object[keys.argsKey] as? [String] ?? [], env: object[keys.envKey] as? [String: String] ?? [:], type: keys.typeKey.flatMap { object[$0] as? String })
     }
 
     static func updating(_ data: Data?, definition: AgentDefinition, name: String, entry: ServerEntry?) throws -> Data {

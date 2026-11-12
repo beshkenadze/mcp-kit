@@ -125,3 +125,48 @@ func forceReplacesForeignEntryCompletely(agent: AgentID) async throws {
         #expect(servers["other"]?["command"] as? String == "/other")
     }
 }
+
+@Test(arguments: AgentID.allCases, [false, true])
+func connectOnCorrectEntryDoesNotRewriteFile(agent: AgentID, existingBackup: Bool) async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: agent)
+    try box.write(agent == .codex ? "# initial\n" : "{}", to: config)
+    let kit = box.kit(desktopInstalled: true)
+    try await kit.connect(agent)
+    let type = agent == .claudeCode ? #""type":"stdio","# : ""
+    let text = agent == .codex ? """
+    # preserve formatting
+    ratio = 0.1
+    precise = 1.0
+    [mcp_servers.filmcraft]
+    command = '\(helperLink(box).path)'
+    args = ['mcp'] # keep
+    [mcp_servers.filmcraft.env]
+    MODE = 'test'
+
+    """ : """
+    {"ratio":0.1,"precise":1.0,"zeta":1,"mcpServers":{"filmcraft":{\(type)"command":"\(helperLink(box).path)","args":["mcp"],"env":{"MODE":"test"}}}}
+    """
+    try box.write(text, to: config)
+    let backup = URL(fileURLWithPath: config.path + ".mcp-kit.bak")
+    if existingBackup { try box.write("original backup", to: backup) }
+    else { try FileManager.default.removeItem(at: backup) }
+    try await kit.connect(agent)
+    #expect(try Data(contentsOf: config) == Data(text.utf8))
+    if existingBackup { #expect(try String(contentsOf: backup, encoding: .utf8) == "original backup") }
+    else { #expect(!FileManager.default.fileExists(atPath: backup.path)) }
+}
+
+@Test func reconnectRepairsTheManagedTransportType() async throws {
+    let box = try Sandbox()
+    defer { try? box.cleanup() }
+    let config = try configuration(box, agent: .claudeCode)
+    try box.write("""
+    {"mcpServers":{"filmcraft":{"type":"http","command":"\(helperLink(box).path)","args":["mcp"],"env":{"MODE":"test"}}}}
+    """, to: config)
+    try await box.kit().connect(.claudeCode)
+    let root = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: config)) as? [String: Any])
+    let entry = try #require((root["mcpServers"] as? [String: [String: Any]])?["filmcraft"])
+    #expect(entry["type"] as? String == "stdio")
+}

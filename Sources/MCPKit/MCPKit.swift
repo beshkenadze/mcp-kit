@@ -21,7 +21,7 @@ public actor MCPKit {
                     let url = environment.expand(definition.config.path)
                     guard let entry = try ConfigReader.entry(in: ConfigReader.data(at: url), definition: definition, name: integration.name) else { return .disconnected }
                     guard try ownedCommands().contains(entry.command) else { return .conflict }
-                    guard entry == (try desiredEntry()) else { return .outdated }
+                    guard entry == (try desiredEntry(definition)) else { return .outdated }
                     if let directory = skillDirectory(definition), try skillInstaller().isOutdated(in: directory) { return .outdated }
                     return .connected
                 } catch { return .unavailable(error.localizedDescription) }
@@ -37,7 +37,7 @@ public actor MCPKit {
         guard definition.isDetected(in: environment) else { throw MCPKitError.agentNotFound(agent) }
         let url = environment.expand(definition.config.path)
         do {
-            let desired = try desiredEntry()
+            let desired = try desiredEntry(definition)
             let commands = try ownedCommands()
             let name = integration.name
             let transform: @Sendable (Data?) throws -> Data = { data in
@@ -46,6 +46,7 @@ public actor MCPKit {
                     if let existing, !commands.contains(existing.command), !force {
                         throw MCPKitError.conflict(agent, existingCommand: existing.command)
                     }
+                    if existing == desired, let data { return data }
                     let base: Data?
                     if let existing, !commands.contains(existing.command) {
                         base = try ConfigReader.updating(data, definition: definition, name: name, entry: nil)
@@ -178,8 +179,8 @@ public actor MCPKit {
         return environment.home.appendingPathComponent("Library/Application Support/\(bundleID)/mcp-kit/bin/\(integration.name)")
     }
 
-    func desiredEntry() throws -> ServerEntry {
-        ServerEntry(command: try helperLink().path, args: integration.arguments, env: integration.env)
+    func desiredEntry(_ definition: AgentDefinition) throws -> ServerEntry {
+        ServerEntry(command: try helperLink().path, args: integration.arguments, env: integration.env, type: definition.entry.type)
     }
 
     private func ownedCommands() throws -> [String] {

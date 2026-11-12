@@ -48,7 +48,7 @@ struct TOMLDocument {
             guard let key = statement.key?.first, let value = statement.value?.string else { throw TOMLError.malformed }
             env[key] = value
         }
-        return ServerEntry(command: command?.string ?? "", args: args, env: env)
+        return ServerEntry(command: command?.string ?? "", args: args, env: env, type: keys.typeKey.flatMap { field($0)?.string })
     }
 
     func updating(definition: AgentDefinition, name: String, entry: ServerEntry?) throws -> Data {
@@ -82,7 +82,7 @@ struct TOMLDocument {
                     edits.append((end..<end, insertion))
                 }
             } else if let first = sections.first {
-                let main = ServerEntry(command: entry.command, args: entry.args, env: hasEnv ? [:] : entry.env)
+                let main = ServerEntry(command: entry.command, args: entry.args, env: hasEnv ? [:] : entry.env, type: entry.type)
                 edits.append((first.range.lowerBound..<first.range.lowerBound, render(main, definition: definition, path: path)))
             }
             for section in sections where section.table.starts(with: envPath) {
