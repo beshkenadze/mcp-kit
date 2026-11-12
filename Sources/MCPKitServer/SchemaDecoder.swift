@@ -8,6 +8,21 @@ public protocol ToolInput: Decodable, Sendable {
 extension ToolInput {
     public static var descriptions: [String: String] { [:] }
     public static var constraints: [String: [SchemaConstraint]] { [:] }
+
+    public static func inputSchema() throws -> Value {
+        try SchemaDecoder.input(Self.self)
+    }
+
+    public static func validate(_ arguments: [String: Value]) throws {
+        try SchemaValidator.validate(.object(arguments), against: inputSchema())
+        _ = try decodeArguments(arguments)
+    }
+
+    static func decodeArguments(_ arguments: [String: Value]) throws -> Self {
+        let data = try JSONEncoder().encode(Value.object(arguments))
+        do { return try JSONDecoder().decode(Self.self, from: data) }
+        catch let error as DecodingError { throw ArgumentFailure(error) }
+    }
 }
 
 public protocol ToolInputEnum: RawRepresentable, CaseIterable, Decodable, Sendable where RawValue == String {}

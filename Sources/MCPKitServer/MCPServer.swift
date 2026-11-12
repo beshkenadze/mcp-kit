@@ -122,12 +122,9 @@ public struct Tool: Sendable {
         self.name = name
         self.description = description
         self.annotations = annotations
-        schema = { try SchemaDecoder.input(input) }
+        schema = { try input.inputSchema() }
         invoke = { params, context in
-            let data = try JSONEncoder().encode(Value.object(params.arguments ?? [:]))
-            let arguments: Input
-            do { arguments = try JSONDecoder().decode(Input.self, from: data) }
-            catch let error as DecodingError { throw ArgumentFailure(error) }
+            let arguments = try input.decodeArguments(params.arguments ?? [:])
             return try await handler(arguments, context)
         }
     }
