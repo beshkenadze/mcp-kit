@@ -23,11 +23,13 @@ extension ToolInputEnum {
 public enum MCPKitServerError: Error, LocalizedError {
     case unsupportedInput(tool: String, reason: String)
     case duplicateTool(String)
+    case invalidStructuredOutput
 
     public var errorDescription: String? {
         switch self {
         case .unsupportedInput(let tool, let reason): "Unsupported input for \(tool): \(reason)"
         case .duplicateTool(let name): "Duplicate tool: \(name)"
+        case .invalidStructuredOutput: "Structured output must be a JSON object"
         }
     }
 }

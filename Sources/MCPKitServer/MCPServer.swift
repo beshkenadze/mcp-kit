@@ -21,6 +21,7 @@ public struct ToolOutput: Sendable {
     public static func structured(_ value: some Encodable, text: String? = nil) throws -> Self {
         let data = try JSONEncoder().encode(value)
         let structured = try JSONDecoder().decode(Value.self, from: data)
+        guard structured.objectValue != nil else { throw MCPKitServerError.invalidStructuredOutput }
         return Self(
             contents: [.text(text: text ?? String(decoding: data, as: UTF8.self), annotations: nil, _meta: nil)],
             structuredContent: structured
