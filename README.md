@@ -1,8 +1,23 @@
 # MCPKit
 
+[![CI](https://github.com/beshkenadze/mcp-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/beshkenadze/mcp-kit/actions/workflows/ci.yml)
+
 Swift 6 tools for shipping a bundled stdio MCP helper and connecting it, with skills, to Claude Code, Claude Desktop, and Codex. Requires macOS 14 or later; the integration app runs without App Sandbox.
 
 Version 0.4.0 adds opt-in adoption of legacy agent entries through `MCPIntegration.legacyCommands`, public input schema access and validation, and fixes for registration and skill freshness. It preserves the 0.3.0 public API. See [CHANGELOG.md](CHANGELOG.md).
+
+## Installation
+
+```swift
+.package(url: "https://github.com/beshkenadze/mcp-kit.git", from: "0.4.0")
+```
+
+Then add `MCPKit` to the app target and `MCPKitServer` to the helper target:
+
+```swift
+.product(name: "MCPKit", package: "mcp-kit")
+.product(name: "MCPKitServer", package: "mcp-kit")
+```
 
 | Product | Add to target | Purpose |
 |---|---|---|
